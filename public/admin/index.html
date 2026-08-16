@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CloudCart Admin Portal | Inventory & Customer Feedback</title>
+  <link rel="stylesheet" href="../css/styles.css">
+  <link rel="stylesheet" href="css/admin.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <header class="admin-header">
+    <div class="admin-title">
+      <h1>🛠️ CloudCart Admin Portal</h1>
+      <p>Product, Orders & Customer Feedback Management Portal</p>
+    </div>
+
+    <div class="header-actions">
+      <a href="/" class="back-link">View Live Customer Page ↗</a>
+      <button class="btn-primary" id="addProductBtn">+ Add New Product</button>
+    </div>
+  </header>
+
+  <!-- Live Dashboard Metrics -->
+  <section class="metrics-grid">
+    <div class="metric-card">
+      <div class="metric-title">Total Active Products</div>
+      <div class="metric-value" id="totalProducts">0</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-title">Total Inventory Count</div>
+      <div class="metric-value" id="totalStock">0</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-title">Connected Live Users</div>
+      <div class="metric-value" id="activeUsers">0</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-title">Total Orders (Revenue)</div>
+      <div class="metric-value" id="totalOrders">0 (₹0)</div>
+    </div>
+  </section>
+
+  <!-- Inventory Table Panel -->
+  <section class="panel">
+    <div class="panel-header">
+      <h2>Product Catalog & Real-Time Stock Management</h2>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Image</th>
+          <th>Product Name</th>
+          <th>Category</th>
+          <th>Price (₹)</th>
+          <th>Stock Control</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="productsTableBody">
+        <!-- Rendered dynamically by admin.js -->
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Recent Customer Orders Panel -->
+  <section class="panel">
+    <div class="panel-header">
+      <h2>🛒 Recent Customer Orders</h2>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Order ID</th>
+          <th>Customer</th>
+          <th>Items Summary</th>
+          <th>Total Amount (₹)</th>
+          <th>Order Time</th>
+        </tr>
+      </thead>
+      <tbody id="ordersTableBody">
+        <!-- Rendered dynamically by admin.js -->
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Customer Feedback Review Panel -->
+  <section class="panel">
+    <div class="panel-header">
+      <h2>💬 Customer Reviews & Feedback</h2>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Customer</th>
+          <th>Email</th>
+          <th>Rating</th>
+          <th>Comments</th>
+          <th>Submitted Time</th>
+        </tr>
+      </thead>
+      <tbody id="feedbackTableBody">
+        <!-- Rendered dynamically by admin.js -->
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Add Product Modal -->
+  <div class="modal-overlay" id="addModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Add New CloudCart Product</h3>
+        <button style="background: transparent; border: none; color: #fff; font-size: 1.5rem; cursor: pointer;" id="closeModalBtn">&times;</button>
+      </div>
+      <form id="addProductForm">
+        <div class="form-group">
+          <label>Product Name</label>
+          <input type="text" name="name" required placeholder="e.g. CloudCart Vision Pro" />
+        </div>
+        <div class="form-group">
+          <label>Category</label>
+          <select name="category" required>
+            <option value="laptops">Laptops</option>
+            <option value="smartphones">Smartphones</option>
+            <option value="audio">Audio</option>
+            <option value="smartwatches">Smartwatches</option>
+            <option value="accessories">Accessories</option>
+            <option value="tablets">Tablets</option>
+          </select>
+        </div>
+        <div style="display: flex; gap: 1rem;">
+          <div class="form-group" style="flex: 1;">
+            <label>Price (₹)</label>
+            <input type="number" step="1" name="price" required placeholder="99999" />
+          </div>
+          <div class="form-group" style="flex: 1;">
+            <label>Initial Stock</label>
+            <input type="number" name="stock" required placeholder="10" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Image URL</label>
+          <input type="url" name="image_url" placeholder="https://images.unsplash.com/..." />
+        </div>
+        <div class="form-group">
+          <label>Description</label>
+          <textarea name="description" rows="3" placeholder="Product details..."></textarea>
+        </div>
+        <button type="submit" class="btn-primary" style="width: 100%; justify-content: center;">Save Product</button>
+      </form>
+    </div>
+  </div>
+
+  <script type="module" src="js/admin.js"></script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+name = "cloudcart-worker"
+main = "worker/index.js"
+compatibility_date = "2024-08-01"
+compatibility_flags = ["nodejs_compat"]
+
+# D1 Database Binding (auto-provisioned)
+[[d1_databases]]
+binding = "DB"
+database_name = "cloudcart-db"
+database_id = "00000000-0000-0000-0000-000000000000"
+
+# Durable Object Binding for Real-Time Multi-User Synchronization
+[[durable_objects.bindings]]
+name = "INVENTORY_DO"
+class_name = "InventoryDO"
+
+# Cloudflare KV Binding for Persistent Cart Session Caching (auto-provisioned)
+[[kv_namespaces]]
+binding = "CLOUDCART_KV"
+id = "00000000000000000000000000000000"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["InventoryDO"]
+
+# Cloudflare Assets Configuration for Workers
+[assets]
+directory = "./public"
+binding = "ASSETS"

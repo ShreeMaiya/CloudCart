@@ -1,0 +1,19 @@
+{
+  "name": "cloudcart",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "CloudCart - Proof of Concept Cloudflare E-Commerce Platform with Real-Time Durable Objects Synchronization",
+  "main": "worker/index.js",
+  "scripts": {
+    "dev": "wrangler dev --port 8787",
+    "db:setup": "wrangler d1 execute DB --local --file=./schema.sql",
+    "deploy": "node scripts/setup.js",
+    "deploy:dry-run": "node scripts/setup.js --dry-run"
+  },
+  "keywords": ["cloudcart", "cloudflare", "workers", "d1", "durable-objects", "kv", "e-commerce"],
+  "author": "Cloudflare Intern",
+  "license": "MIT",
+  "devDependencies": {
+    "wrangler": "^3.114.17"
+  }
+}

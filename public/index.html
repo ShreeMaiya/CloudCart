@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CloudCart</title>
+  <meta name="description" content="Shop premium smartphones, laptops, smartwatches, and accessories at CloudCart.">
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- Header Surface -->
+  <header>
+    <a href="#" class="logo">
+      ☁️ CloudCart
+    </a>
+
+    <div class="nav-controls">
+      <!-- Real-Time Sync Indicator -->
+      <div class="live-sync-indicator" title="Real-time multi-user synchronization active">
+        <span class="dot" id="liveSyncDot"></span>
+        <span id="activeUsersText">Syncing...</span>
+      </div>
+
+      <button class="btn-cart" id="feedbackBtn" style="background: rgba(255, 255, 255, 0.05); border-color: var(--border-color);">
+        <span>Feedback</span>
+      </button>
+
+      <button class="btn-cart" id="cartBtn" aria-label="Shopping Cart">
+        <span>Cart</span>
+        <span class="cart-count" id="cartCount">0</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="hero">
+    <h1>Upgrade Your Digital Lifestyle with <span>CloudCart</span></h1>
+    <p>Discover flagship laptops, smartphones, smartwatches, and accessories. Premium quality with fast, seamless delivery.</p>
+  </section>
+
+  <!-- Interactive Search & Filters Bar -->
+  <section class="controls-container">
+    <div class="search-box">
+      <input type="text" id="searchInput" placeholder="Search CloudCart products (e.g. Pro, Ultra, Audio)..." />
+    </div>
+
+    <div class="categories-bar">
+      <button class="category-chip active" data-category="all">All Tech</button>
+      <button class="category-chip" data-category="laptops">Laptops</button>
+      <button class="category-chip" data-category="smartphones">Smartphones</button>
+      <button class="category-chip" data-category="audio">Audio</button>
+      <button class="category-chip" data-category="smartwatches">Smartwatches</button>
+      <button class="category-chip" data-category="accessories">Accessories</button>
+    </div>
+  </section>
+
+  <!-- Product Catalog Grid -->
+  <main class="products-grid" id="productsGrid">
+    <!-- Rendered dynamically by app.js -->
+  </main>
+
+  <!-- Cart Slide-in Drawer -->
+  <div class="cart-drawer-overlay" id="cartDrawerOverlay">
+    <div class="cart-drawer">
+      <div class="cart-header">
+        <h2>Your Shopping Cart</h2>
+        <button class="btn-close-cart" id="closeCartBtn">&times;</button>
+      </div>
+
+      <div class="cart-items-list" id="cartItemsList">
+        <!-- Rendered dynamically -->
+      </div>
+
+      <div class="cart-footer">
+        <div class="cart-total-row">
+          <span>Subtotal</span>
+          <span id="cartSubtotal">₹0</span>
+        </div>
+        <button class="btn-checkout" id="checkoutBtn">Complete Purchase</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Feedback Submission Modal -->
+  <div class="modal-overlay" id="feedbackModalOverlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Share Your Customer Feedback</h3>
+        <button style="background: transparent; border: none; color: #fff; font-size: 1.5rem; cursor: pointer;" id="closeFeedbackBtn">&times;</button>
+      </div>
+      <form id="feedbackForm">
+        <div class="form-group">
+          <label>Your Name</label>
+          <input type="text" name="customer_name" required placeholder="e.g. John Doe" />
+        </div>
+        <div class="form-group">
+          <label>Email Address (Optional)</label>
+          <input type="email" name="email" placeholder="john@example.com" />
+        </div>
+        <div class="form-group">
+          <label>Rating</label>
+          <select name="rating" required>
+            <option value="5">⭐⭐⭐⭐⭐ 5 - Excellent</option>
+            <option value="4">⭐⭐⭐⭐ 4 - Good</option>
+            <option value="3">⭐⭐⭐ 3 - Average</option>
+            <option value="2">⭐⭐ 2 - Poor</option>
+            <option value="1">⭐ 1 - Terrible</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Your Comments</label>
+          <textarea name="comments" rows="3" required placeholder="Write your experience with CloudCart..."></textarea>
+        </div>
+        <button type="submit" class="btn-checkout" id="submitFeedbackBtn">Submit Feedback</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- App Script -->
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
