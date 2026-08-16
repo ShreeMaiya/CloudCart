@@ -16,7 +16,7 @@ const API_BASE   = "https://api.cloudflare.com/client/v4";
 const RESOURCE_NAMES = {
   database : "cloudcart-db",
   kv       : "cloudcart-kv",
-  worker   : "cloudcart-worker",
+  worker   : "cloudcart",
 };
 
 if (!ACCOUNT_ID || !API_TOKEN) {
@@ -88,7 +88,7 @@ async function ensureKV() {
 
 // ─── Generate wrangler.toml with real resource IDs ───────────────────────────
 function generateWranglerToml({ databaseId, kvId }) {
-  return `name = "cloudcart-worker"
+  return `name = "cloudcart"
 main = "worker/index.js"
 compatibility_date = "2024-08-01"
 compatibility_flags = ["nodejs_compat"]

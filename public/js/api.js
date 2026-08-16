@@ -7,11 +7,12 @@ export const API_BASE = isLocalHost
 
 export async function fetchProducts(category = 'all', search = '') {
   try {
-    const url = new URL(`${API_BASE}/products`, window.location.origin);
-    if (category && category !== 'all') url.searchParams.append('category', category);
-    if (search) url.searchParams.append('search', search);
+    const params = new URLSearchParams();
+    if (category && category !== 'all') params.append('category', category);
+    if (search) params.append('search', search);
+    const queryString = params.toString() ? `?${params.toString()}` : '';
 
-    const res = await fetch(url.toString());
+    const res = await fetch(`${API_BASE}/products${queryString}`);
     const data = await res.json();
     return data.products || [];
   } catch (err) {
