@@ -1,4 +1,4 @@
-name = "cloudcart"
+name = "cloudcart-worker"
 main = "worker/index.js"
 compatibility_date = "2024-08-01"
 compatibility_flags = ["nodejs_compat"]
@@ -22,8 +22,3 @@ id = "00000000000000000000000000000000"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["InventoryDO"]
-
-# Cloudflare Assets Configuration for Workers
-[assets]
-directory = "./public"
-binding = "ASSETS"

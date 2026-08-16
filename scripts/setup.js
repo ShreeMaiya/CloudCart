@@ -1,6 +1,6 @@
 // CloudCart - Cloudflare Provisioning & Deployment Script
-// Automatically provisions D1 Database, KV Namespace, and deploys the Worker.
-// Inspired by reference implementation pattern.
+// Provisions D1 Database, KV Namespace, Backend Worker (cloudcart-worker),
+// and Cloudflare Pages (cloudcart) connected via Service Bindings.
 
 import { writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
@@ -16,7 +16,8 @@ const API_BASE   = "https://api.cloudflare.com/client/v4";
 const RESOURCE_NAMES = {
   database : "cloudcart-db",
   kv       : "cloudcart-kv",
-  worker   : "cloudcart",
+  worker   : "cloudcart-worker",
+  pages    : "cloudcart",
 };
 
 if (!ACCOUNT_ID || !API_TOKEN) {
@@ -86,9 +87,57 @@ async function ensureKV() {
   return created.result;
 }
 
+// ─── Ensure Pages Project with Service Binding ───────────────────────────────
+async function ensurePages() {
+  const existing = await cloudflare(`/pages/projects/${RESOURCE_NAMES.pages}`, {
+    allowNotFound: true,
+  });
+
+  const serviceBindingConfig = {
+    production: {
+      service_bindings: {
+        API_WORKER: { service: RESOURCE_NAMES.worker, environment: "production" }
+      }
+    },
+    preview: {
+      service_bindings: {
+        API_WORKER: { service: RESOURCE_NAMES.worker, environment: "production" }
+      }
+    }
+  };
+
+  if (existing && existing.result) {
+    console.log(`✅ Reusing existing Cloudflare Pages project: ${RESOURCE_NAMES.pages}`);
+    try {
+      await cloudflare(`/pages/projects/${RESOURCE_NAMES.pages}`, {
+        method: "PATCH",
+        body: {
+          deployment_configs: serviceBindingConfig
+        }
+      });
+      console.log(`🔗 Service binding 'API_WORKER -> ${RESOURCE_NAMES.worker}' configured for Pages.`);
+    } catch (err) {
+      console.log(`ℹ️ Note on Pages Service Binding config: ${err.message}`);
+    }
+    return existing.result;
+  }
+
+  console.log(`🔧 Creating Cloudflare Pages project: ${RESOURCE_NAMES.pages}`);
+  const created = await cloudflare("/pages/projects", {
+    method: "POST",
+    body: {
+      name: RESOURCE_NAMES.pages,
+      production_branch: "main",
+      deployment_configs: serviceBindingConfig
+    },
+  });
+  console.log(`✅ Created Cloudflare Pages project: ${RESOURCE_NAMES.pages}`);
+  return created.result;
+}
+
 // ─── Generate wrangler.toml with real resource IDs ───────────────────────────
 function generateWranglerToml({ databaseId, kvId }) {
-  return `name = "cloudcart"
+  return `name = "${RESOURCE_NAMES.worker}"
 main = "worker/index.js"
 compatibility_date = "2024-08-01"
 compatibility_flags = ["nodejs_compat"]
@@ -112,11 +161,6 @@ id = "${kvId}"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["InventoryDO"]
-
-# Cloudflare Assets Configuration for Workers
-[assets]
-directory = "./public"
-binding = "ASSETS"
 `;
 }
 
@@ -154,7 +198,7 @@ function runWrangler(args) {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 console.log(DRY_RUN
   ? "\n📋 DRY RUN — generating config only, no deployments.\n"
-  : "\n🚀 CloudCart — Provisioning Cloudflare resources and deploying...\n"
+  : "\n🚀 CloudCart — Provisioning Cloudflare resources (Pages + Workers + D1 + KV + DO)...\n"
 );
 
 const [database, kv] = DRY_RUN
@@ -168,7 +212,7 @@ if (!database?.uuid || !kv?.id) {
   throw new Error("Cloudflare returned incomplete resource metadata.");
 }
 
-// Write the generated wrangler.toml with real IDs
+// Write the generated wrangler.toml with real IDs for the backend worker
 const wranglerContent = generateWranglerToml({
   databaseId: database.uuid,
   kvId:       kv.id,
@@ -191,11 +235,26 @@ await runWrangler([
   "--config", resolve("wrangler.toml"),
 ]);
 
-// Step 2: Deploy the Worker (serves API + static assets via [assets] binding)
-console.log("\n🚀 Deploying CloudCart Worker to Cloudflare...");
+// Step 2: Deploy Backend Worker (serves REST API, Durable Objects, D1, KV)
+console.log("\n🚀 Deploying CloudCart Backend Worker (cloudcart-worker)...");
 await runWrangler([
   "deploy",
   "--config", resolve("wrangler.toml"),
 ]);
 
-console.log("\n✅ CloudCart deployed successfully to Cloudflare!\n");
+// Step 3: Ensure Cloudflare Pages project with Service Binding
+console.log("\n⚡ Provisioning Cloudflare Pages project with Service Binding...");
+await ensurePages();
+
+// Step 4: Deploy Cloudflare Pages frontend (serves UI + Pages Functions)
+console.log("\n🌐 Deploying CloudCart Frontend to Cloudflare Pages (cloudcart.pages.dev)...");
+await runWrangler([
+  "pages", "deploy", resolve("public"),
+  "--project-name", RESOURCE_NAMES.pages,
+  "--branch", "main",
+  "--commit-dirty=true",
+]);
+
+console.log("\n✨ CloudCart Multi-Tier Architecture deployed successfully!");
+console.log(`   Frontend (Pages):  https://${RESOURCE_NAMES.pages}.pages.dev`);
+console.log(`   Backend  (Worker): https://${RESOURCE_NAMES.worker}.shreesha.workers.dev\n`);

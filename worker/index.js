@@ -38,7 +38,7 @@ export default {
         return await doStub.fetch(request);
       }
 
-      // 2. Serve static frontend assets for non-API routes
+      // 2. Serve static frontend assets if ASSETS bound, or return API service info
       if (!path.startsWith("/api")) {
         if (env.ASSETS) {
           if (path === "/admin") {
@@ -46,6 +46,11 @@ export default {
           }
           return await env.ASSETS.fetch(request);
         }
+        return jsonResponse({
+          service: "CloudCart Backend API Microservice",
+          status: "healthy",
+          endpoints: ["/api/products", "/api/checkout", "/api/session/cart", "/api/feedback", "/api/metrics", "/api/sync"]
+        });
       }
 
       // 3. Health check route
