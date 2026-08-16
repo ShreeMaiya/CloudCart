@@ -111,7 +111,7 @@ id = "${kvId}"
 
 [[migrations]]
 tag = "v1"
-new_classes = ["InventoryDO"]
+new_sqlite_classes = ["InventoryDO"]
 
 # Cloudflare Assets Configuration for Workers
 [assets]
