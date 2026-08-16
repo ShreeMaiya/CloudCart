@@ -1,11 +1,13 @@
 // CloudCart API & Real-time WebSocket Client
 
 const isLocalHost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
-export const API_BASE = isLocalHost ? "http://127.0.0.1:8787/api" : (window.location.protocol === "file:" ? "http://127.0.0.1:8787/api" : "/api");
+export const API_BASE = isLocalHost
+  ? "http://127.0.0.1:8787/api"
+  : (window.location.protocol === "file:" ? "http://127.0.0.1:8787/api" : `${window.location.origin}/api`);
 
 export async function fetchProducts(category = 'all', search = '') {
   try {
-    const url = new URL(`${API_BASE}/products`);
+    const url = new URL(`${API_BASE}/products`, window.location.origin);
     if (category && category !== 'all') url.searchParams.append('category', category);
     if (search) url.searchParams.append('search', search);
 
