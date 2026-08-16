@@ -1,6 +1,6 @@
 // Cloudflare Durable Object for Real-Time Multi-User Inventory Synchronization
 
-export class InventorySyncDO {
+export class InventoryDO {
   constructor(state, env) {
     this.state = state;
     this.env = env;
@@ -190,3 +190,5 @@ export class InventorySyncDO {
     }), { headers: { "Content-Type": "application/json" } });
   }
 }
+
+export class InventorySyncDO extends InventoryDO {}

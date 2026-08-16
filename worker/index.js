@@ -1,6 +1,6 @@
-import { InventorySyncDO } from "./InventoryDO.js";
+import { InventoryDO, InventorySyncDO } from "./InventoryDO.js";
 
-export { InventorySyncDO };
+export { InventoryDO, InventorySyncDO };
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
