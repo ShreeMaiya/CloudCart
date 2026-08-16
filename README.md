@@ -32,29 +32,6 @@ A production-grade, serverless E-Commerce platform built with **HTML, CSS, JavaS
 - **Recent Customer Orders Table**: Live listing of customer purchases showing Order ID, Customer Name, Items Summary, Total (₹), and Timestamp.
 - **Customer Reviews & Feedback Panel**: Live table displaying submitted customer reviews and star ratings.
 
----
-
-## 💻 Local Development Guide
-
-### Step 1: Install Dependencies
-```bash
-npm install
-```
-
-### Step 2: Initialize Local D1 Database
-```bash
-npm run db:setup
-```
-
-### Step 3: Run Local Dev Server
-```bash
-npm run dev
-```
-- **Customer Storefront**: `http://127.0.0.1:8787`
-- **Admin Dashboard**: `http://127.0.0.1:8787/admin/`
-
----
-
 ## 🌐 Automated Cloudflare Deployment (GitHub Actions)
 
 This repository includes a fully automated provisioning script (`scripts/setup.js`) that creates all required Cloudflare resources (D1 Database, KV Namespace) and deploys the Worker automatically.

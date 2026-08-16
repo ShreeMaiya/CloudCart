@@ -102,7 +102,7 @@ database_id = "${databaseId}"
 # Durable Object Binding for Real-Time Multi-User Synchronization
 [[durable_objects.bindings]]
 name = "INVENTORY_DO"
-class_name = "InventoryDO"
+class_name = "InventorySyncDO"
 
 # Cloudflare KV Binding for Persistent Cart Session Caching (auto-provisioned)
 [[kv_namespaces]]
@@ -110,8 +110,8 @@ binding = "CLOUDCART_KV"
 id = "${kvId}"
 
 [[migrations]]
-tag = "v1"
-new_sqlite_classes = ["InventoryDO"]
+tag = "v2"
+new_sqlite_classes = ["InventorySyncDO"]
 
 # Cloudflare Assets Configuration for Workers
 [assets]

@@ -1,6 +1,6 @@
 // Cloudflare Durable Object for Real-Time Multi-User Inventory Synchronization
 
-export class InventoryDO {
+export class InventorySyncDO {
   constructor(state, env) {
     this.state = state;
     this.env = env;
