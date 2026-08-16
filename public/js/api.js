@@ -1,9 +1,6 @@
 // CloudCart API & Real-time WebSocket Client
 
-const isLocalHost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
-export const API_BASE = isLocalHost
-  ? "http://127.0.0.1:8787/api"
-  : (window.location.protocol === "file:" ? "http://127.0.0.1:8787/api" : `${window.location.origin}/api`);
+export const API_BASE = "/api";
 
 export async function fetchProducts(category = 'all', search = '') {
   try {
@@ -85,12 +82,7 @@ export async function fetchFeedbackList() {
 
 export function initRealtimeSync(onEventCallback, onStatusCallback) {
   const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  let wsHost = window.location.host;
-  if (isLocalHost || window.location.protocol === "file:") {
-    wsHost = "127.0.0.1:8787";
-  }
-
-  const wsUrl = `${wsProtocol}//${wsHost}/api/sync`;
+  const wsUrl = `${wsProtocol}//${window.location.host}/api/sync`;
   let socket = null;
 
   function connect() {
