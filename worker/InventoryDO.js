@@ -1,16 +1,43 @@
-// Cloudflare Durable Object for Real-Time Multi-User Inventory Synchronization
+// Cloudflare Durable Object for Real-Time Multi-User Inventory & Edge Telemetry Synchronization
 
 export class InventoryDO {
   constructor(state, env) {
     this.state = state;
     this.env = env;
     this.sessions = new Set(); // Active WebSocket client connections
+    this.recentLogs = []; // Rolling buffer of last 50 telemetry events
+    this.startTime = Date.now();
+  }
+
+  appendLog(logEntry) {
+    const entry = {
+      id: 'log-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
+      timestamp: new Date().toISOString(),
+      service: logEntry.service || "EDGE",
+      level: logEntry.level || "INFO",
+      event: logEntry.event || "EVENT",
+      message: logEntry.message || "",
+      durationMs: logEntry.durationMs !== undefined ? logEntry.durationMs : null,
+      metadata: logEntry.metadata || {}
+    };
+
+    this.recentLogs.push(entry);
+    if (this.recentLogs.length > 50) {
+      this.recentLogs.shift();
+    }
+
+    this.broadcast({
+      type: "TELEMETRY_LOG",
+      log: entry
+    });
+
+    return entry;
   }
 
   async fetch(request) {
     const url = new URL(request.url);
 
-    // Handle WebSocket Upgrade for real-time live sync channel
+    // Handle WebSocket Upgrade for real-time live sync & telemetry channel
     if (request.headers.get("Upgrade") === "websocket") {
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
@@ -35,6 +62,26 @@ export class InventoryDO {
       });
     }
 
+    if (path === "/log-broadcast" && method === "POST") {
+      const payload = await request.json();
+      const logged = this.appendLog(payload);
+      return new Response(JSON.stringify({ success: true, log: logged, activeConnections: this.sessions.size }), {
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+
+    if (path === "/telemetry-stats" && method === "GET") {
+      return new Response(JSON.stringify({
+        success: true,
+        activeConnections: this.sessions.size,
+        uptimeSec: Math.floor((Date.now() - this.startTime) / 1000),
+        totalLogs: this.recentLogs.length,
+        recentLogs: this.recentLogs.slice(-25)
+      }), {
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+
     if (path === "/atomic-purchase" && method === "POST") {
       const { items, customerName } = await request.json();
       return await this.handleAtomicPurchase(items, customerName);
@@ -47,11 +94,12 @@ export class InventoryDO {
     serverSocket.accept();
     this.sessions.add(serverSocket);
 
-    // Send initial handshake message with connection metadata
+    // Send initial handshake message with connection metadata & log history
     serverSocket.send(JSON.stringify({
       type: "CONNECTED",
       activeConnections: this.sessions.size,
-      message: "Connected to CloudCart Real-Time Synchronization Engine"
+      recentLogs: this.recentLogs.slice(-20),
+      message: "Connected to CloudCart Real-Time Synchronization & Telemetry Engine"
     }));
 
     // Broadcast updated active user count to all clients
@@ -168,7 +216,7 @@ export class InventoryDO {
       "INSERT INTO orders (id, customer_name, items_summary, total_amount, items_count) VALUES (?, ?, ?, ?, ?)"
     ).bind(orderId, finalCustomerName, summaryText, totalAmount, totalItems).run();
 
-    // Broadcast Order Placed Event to Admin
+    // Broadcast Order Placed Event to Admin & Ops
     this.broadcast({
       type: "ORDER_PLACED",
       order: {
@@ -179,6 +227,14 @@ export class InventoryDO {
         items_count: totalItems,
         created_at: new Date().toISOString()
       }
+    });
+
+    this.appendLog({
+      service: "D1_DATABASE",
+      level: "SUCCESS",
+      event: "ORDER_CREATED",
+      message: `Order ${orderId} created for ${finalCustomerName} (₹${totalAmount.toLocaleString('en-IN')})`,
+      metadata: { orderId, totalAmount, itemsCount: totalItems }
     });
 
     return new Response(JSON.stringify({

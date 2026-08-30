@@ -1,0 +1,106 @@
+<mxfile host="Electron" agent="ChatGPT">
+  <diagram name="Admin Flow and Product Management" id="cloudcart-admin-product-management">
+    <mxGraphModel dx="2048" dy="963" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#c7c7c7;strokeWidth=1;fontSize=21;fontStyle=1;fontColor=#111111;align=center;verticalAlign=middle;" value="CloudCart — Admin Flow &amp; Product Management" vertex="1">
+          <mxGeometry height="52" width="800" x="400" y="25" as="geometry" />
+        </mxCell>
+        <mxCell id="adminzone" parent="1" style="rounded=1;arcSize=8;fillColor=#fff7ea;strokeColor=#d6a13b;strokeWidth=1.5;fontSize=15;fontStyle=1;fontColor=#222222;verticalAlign=top;spacingTop=12;" value="Admin Portal &amp; Management Flow" vertex="1">
+          <mxGeometry height="875" width="850" x="45" y="105" as="geometry" />
+        </mxCell>
+        <mxCell id="login" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff0d8;strokeColor=#d79b00;strokeWidth=1.5;fontSize=11;fontColor=#111111;align=center;verticalAlign=middle;" value="&lt;font style=&quot;font-size: 14px;&quot;&gt;&lt;b&gt;1. Open Admin Portal&lt;/b&gt;&lt;br&gt;public/admin/index.html&lt;br&gt;public/admin/js/admin.js&lt;/font&gt;" vertex="1">
+          <mxGeometry height="75" width="340" x="300" y="150" as="geometry" />
+        </mxCell>
+        <mxCell id="dashboard" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff0d8;strokeColor=#d79b00;strokeWidth=1.5;fontSize=11;fontColor=#111111;align=center;verticalAlign=middle;" value="&lt;font style=&quot;font-size: 14px;&quot;&gt;&lt;b&gt;2. Admin Dashboard&lt;/b&gt;&lt;br&gt;View product catalog • stock • recent orders&lt;br&gt;Customer feedback • metrics&lt;/font&gt;" vertex="1">
+          <mxGeometry height="90" width="400" x="270" y="270" as="geometry" />
+        </mxCell>
+        <mxCell id="products" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f5e9;strokeColor=#82b366;strokeWidth=1.5;fontSize=11;fontColor=#111111;align=center;verticalAlign=middle;" value="&lt;font style=&quot;font-size: 14px;&quot;&gt;&lt;b&gt;3. Product Management&lt;/b&gt;&lt;br&gt;GET /api/products&lt;br&gt;View product list and current stock&lt;/font&gt;" vertex="1">
+          <mxGeometry height="90" width="390" x="275" y="405" as="geometry" />
+        </mxCell>
+        <mxCell id="decision" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff8dc;strokeColor=#d6b656;strokeWidth=1.5;fontSize=11;fontStyle=1;fontColor=#111111;align=center;verticalAlign=middle;" value="&lt;font style=&quot;font-size: 12px;&quot;&gt;&lt;b style=&quot;&quot;&gt;Product Action&lt;/b&gt;&lt;br&gt;Create / Edit / Stock Update / Delete&lt;/font&gt;" vertex="1">
+          <mxGeometry height="105" width="260" x="340" y="535" as="geometry" />
+        </mxCell>
+        <mxCell id="create" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f5e9;strokeColor=#82b366;strokeWidth=1.5;fontSize=11;fontColor=#111111;align=center;verticalAlign=middle;" value="&lt;font style=&quot;font-size: 14px;&quot;&gt;&lt;b&gt;Create Product&lt;/b&gt;&lt;br&gt;POST /api/products&lt;br&gt;name • category • price • stock&lt;br&gt;description • image_url • active&lt;/font&gt;" vertex="1">
+          <mxGeometry height="125" width="235" x="80" y="690" as="geometry" />
+        </mxCell>
+        <mxCell id="edit" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f5e9;strokeColor=#82b366;strokeWidth=1.5;fontSize=11;fontColor=#111111;align=center;verticalAlign=middle;" value="&lt;font style=&quot;font-size: 14px;&quot;&gt;&lt;b&gt;Edit Product&lt;/b&gt;&lt;br&gt;PUT /api/products/:id&lt;br&gt;Update product information&lt;br&gt;and stock values&lt;/font&gt;" vertex="1">
+          <mxGeometry height="125" width="235" x="345" y="690" as="geometry" />
+        </mxCell>
+        <mxCell id="delete" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f5e9;strokeColor=#82b366;strokeWidth=1.5;fontSize=11;fontColor=#111111;align=center;verticalAlign=middle;" value="&lt;font style=&quot;font-size: 14px;&quot;&gt;&lt;b&gt;Delete / Deactivate&lt;/b&gt;&lt;br&gt;DELETE /api/products/:id&lt;br&gt;Remove product from catalog&lt;br&gt;or manage active state&lt;/font&gt;" vertex="1">
+          <mxGeometry height="125" width="235" x="610" y="690" as="geometry" />
+        </mxCell>
+        <mxCell id="operations" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff0d8;strokeColor=#d79b00;strokeWidth=1.5;fontSize=11;fontColor=#111111;align=center;verticalAlign=middle;" value="&lt;font style=&quot;font-size: 14px;&quot;&gt;&lt;b&gt;4. Other Admin Operations&lt;/b&gt;&lt;br&gt;Orders: GET /api/orders&lt;br&gt;Feedback: GET /api/feedback&lt;br&gt;Metrics: GET /api/metrics&lt;/font&gt;" vertex="1">
+          <mxGeometry height="85" width="400" x="270" y="855" as="geometry" />
+        </mxCell>
+        <mxCell id="backendzone" parent="1" style="rounded=1;arcSize=8;fillColor=#f7f8fa;strokeColor=#aab4c0;strokeWidth=1.5;fontSize=15;fontStyle=1;fontColor=#222222;verticalAlign=top;spacingTop=12;" value="Backend API &amp; Persistent Data" vertex="1">
+          <mxGeometry height="875" width="620" x="935" y="105" as="geometry" />
+        </mxCell>
+        <mxCell id="pages" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0eafa;strokeColor=#9673a6;strokeWidth=1.5;fontSize=11;fontColor=#111111;align=center;verticalAlign=middle;" value="&lt;font style=&quot;font-size: 14px;&quot;&gt;&lt;b&gt;Cloudflare Pages Functions&lt;/b&gt;&lt;br&gt;functions/api/[[route]].js&lt;br&gt;Catch-all /api/* proxy&lt;/font&gt;" vertex="1">
+          <mxGeometry height="90" width="390" x="1050" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="worker" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0eafa;strokeColor=#9673a6;strokeWidth=1.5;fontSize=11;fontColor=#111111;align=center;verticalAlign=middle;" value="&lt;font style=&quot;font-size: 14px;&quot;&gt;&lt;b&gt;Cloudflare Worker — cloudcart-worker&lt;/b&gt;&lt;br&gt;worker/index.js&lt;br&gt;Route + business logic&lt;/font&gt;" vertex="1">
+          <mxGeometry height="95" width="390" x="1050" y="295" as="geometry" />
+        </mxCell>
+        <mxCell id="api" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0eafa;strokeColor=#9673a6;strokeWidth=1.5;fontSize=11;fontColor=#111111;align=center;verticalAlign=middle;" value="&lt;font style=&quot;font-size: 14px;&quot;&gt;&lt;b&gt;Admin API Routes&lt;/b&gt;&lt;br&gt;/api/products&lt;br&gt;/api/orders&lt;br&gt;/api/feedback&lt;br&gt;/api/metrics&lt;/font&gt;" vertex="1">
+          <mxGeometry height="130" width="470" x="1010" y="430" as="geometry" />
+        </mxCell>
+        <mxCell id="d1" parent="1" style="shape=cylinder;whiteSpace=wrap;html=1;boundedLbl=1;fillColor=#eaf2ff;strokeColor=#6c8ebf;strokeWidth=1.5;fontSize=11;fontColor=#111111;align=center;verticalAlign=middle;" value="&lt;font style=&quot;font-size: 14px;&quot;&gt;&lt;b&gt;Cloudflare D1 — cloudcart-db&lt;/b&gt;&lt;br&gt;&lt;br&gt;PRODUCTS&lt;br&gt;ORDERS&lt;br&gt;FEEDBACK&lt;/font&gt;" vertex="1">
+          <mxGeometry height="175" width="350" x="1070" y="625" as="geometry" />
+        </mxCell>
+        <mxCell id="stocknote" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8dc;strokeColor=#d6b656;strokeWidth=1.5;fontSize=10.5;fontColor=#111111;align=center;verticalAlign=middle;" value="&lt;font style=&quot;font-size: 14px;&quot;&gt;&lt;b&gt;Stock Management&lt;/b&gt;&lt;br&gt;Product stock is updated through the product API.&lt;br&gt;Checkout uses InventoryDO for the authoritative&lt;br&gt;concurrent stock deduction.&lt;/font&gt;" vertex="1">
+          <mxGeometry height="95" width="540" x="975" y="840" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" edge="1" parent="1" source="login" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#d79b00;strokeWidth=1.5;" target="dashboard" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" edge="1" parent="1" source="dashboard" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#d79b00;strokeWidth=1.5;" target="products" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" edge="1" parent="1" source="products" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#82b366;strokeWidth=1.5;" target="decision" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" edge="1" parent="1" source="decision" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#82b366;strokeWidth=1.5;fontSize=10;fontStyle=1;labelBackgroundColor=#ffffff;" target="create" value="CREATE">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" edge="1" parent="1" source="decision" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#82b366;strokeWidth=1.5;fontSize=10;fontStyle=1;labelBackgroundColor=#ffffff;" target="edit" value="EDIT">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" edge="1" parent="1" source="decision" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#82b366;strokeWidth=1.5;fontSize=10;fontStyle=1;labelBackgroundColor=#ffffff;" target="delete" value="DELETE">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" edge="1" parent="1" source="create" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#82b366;strokeWidth=1.5;dashed=1;" target="operations" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" edge="1" parent="1" source="edit" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#82b366;strokeWidth=1.5;dashed=1;" target="operations" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" edge="1" parent="1" source="delete" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#82b366;strokeWidth=1.5;dashed=1;" target="operations" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e10" edge="1" parent="1" source="login" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#d79b00;strokeWidth=1.5;dashed=1;" target="pages" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e11" edge="1" parent="1" source="pages" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#9673a6;strokeWidth=1.5;" target="worker" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e12" edge="1" parent="1" source="worker" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#9673a6;strokeWidth=1.5;" target="api" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e13" edge="1" parent="1" source="api" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#6c8ebf;strokeWidth=1.5;" target="d1" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e14" edge="1" parent="1" source="products" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#9673a6;strokeWidth=1.5;dashed=1;" target="api" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e15" edge="1" parent="1" source="operations" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#9673a6;strokeWidth=1.5;dashed=1;" target="api" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e16" edge="1" parent="1" source="d1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#6c8ebf;strokeWidth=1.5;dashed=1;" target="api" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

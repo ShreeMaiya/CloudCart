@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CloudCart | Cloudflare Edge Observability & Monitoring</title>
+  <meta name="description" content="Real-time telemetry, distributed edge tracing, and Cloudflare developer platform diagnostics for CloudCart.">
+  <link rel="stylesheet" href="css/monitor.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- Ops Header Navigation -->
+  <header class="ops-header">
+    <div class="ops-brand">
+      <a href="/" class="logo-text">☁️ CloudCart</a>
+      <span class="ops-pill">🛰️ EDGE MONITOR</span>
+    </div>
+
+    <nav class="nav-links">
+      <a href="/" class="nav-item">🛒 Storefront</a>
+      <a href="/admin/" class="nav-item">🛠️ Admin Portal</a>
+      <a href="/monitor/" class="nav-item active">🛰️ Observability</a>
+    </nav>
+
+    <div class="header-right">
+      <div class="live-indicator">
+        <span class="pulse-dot" id="wsStatusDot"></span>
+        <span id="wsStatusText">Connecting Edge...</span>
+      </div>
+      <button class="btn-action" id="refreshTelemetryBtn">
+        <span class="icon">🔄</span> Refresh
+      </button>
+    </div>
+  </header>
+
+  <main class="monitor-container">
+    
+    <!-- Hero / Cloudflare Edge Location Intelligence -->
+    <section class="edge-hero-card">
+      <div class="edge-header-info">
+        <div class="colo-badge-wrapper">
+          <span class="colo-label">Cloudflare Edge Location Code</span>
+          <div class="colo-code" id="coloCode">BOM</div>
+          <span class="colo-sub" id="coloLocation">Mumbai, India</span>
+        </div>
+
+        <div class="edge-meta-grid">
+          <div class="meta-item">
+            <span class="meta-label">Cloudflare Ray ID</span>
+            <span class="meta-val mono" id="cfRayId">Loading...</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">HTTP Protocol</span>
+            <span class="meta-val highlight" id="httpProto">HTTP/3 (QUIC)</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">TLS Cipher & Version</span>
+            <span class="meta-val" id="tlsInfo">TLSv1.3 / AEAD-AES128</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">Network ASN & ISP</span>
+            <span class="meta-val" id="asnInfo">AS13335 (Cloudflare Edge)</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">Client IP Address</span>
+            <span class="meta-val mono" id="clientIp">Loading...</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">Service Binding IPC</span>
+            <span class="meta-val status-green">⚡ Active (Pages ➔ Worker)</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Distributed Tracing & Latency Waterfall -->
+    <section class="ops-section">
+      <div class="section-title-row">
+        <div>
+          <h2>⚡ Distributed Edge Request Tracing</h2>
+          <p class="section-desc">Interactive execution breakdown measuring sub-millisecond edge IPC, KV caching, D1 queries, and Durable Object coordination.</p>
+        </div>
+        <button class="btn-primary-gradient" id="runTraceBtn">
+          <span>🚀 Run Trace Benchmark</span>
+        </button>
+      </div>
+
+      <div class="trace-card">
+        <div class="trace-summary-header">
+          <div>
+            <span class="summary-label">Trace Identifier:</span>
+            <span class="mono" id="traceIdDisplay">trace-init-ready</span>
+          </div>
+          <div class="total-latency-badge">
+            Total Edge Latency: <strong id="totalTraceTime">0.00 ms</strong>
+          </div>
+        </div>
+
+        <!-- Waterfall Visualization Container -->
+        <div class="waterfall-container" id="waterfallContainer">
+          <div class="waterfall-loading">Click "Run Trace Benchmark" to execute live end-to-end multi-tier latency trace.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Cloudflare Developer Platform Primitives Health Grid -->
+    <section class="ops-section">
+      <div class="section-title-row">
+        <div>
+          <h2>🏛️ Cloudflare Stack Diagnostics</h2>
+          <p class="section-desc">Live resource utilization, storage metrics, and health states across bound services.</p>
+        </div>
+      </div>
+
+      <div class="services-grid">
+        <!-- D1 Database Card -->
+        <div class="service-card">
+          <div class="card-top">
+            <div class="service-icon-box d1-color">🗄️</div>
+            <div>
+              <h3>Cloudflare D1 Database</h3>
+              <span class="binding-tag">Binding: DB (cloudcart-db)</span>
+            </div>
+            <span class="badge-healthy">HEALTHY</span>
+          </div>
+          <div class="service-stats">
+            <div class="stat-row">
+              <span>Database Engine:</span>
+              <strong>Serverless SQLite</strong>
+            </div>
+            <div class="stat-row">
+              <span>Products Table:</span>
+              <strong id="d1ProdCount">-- rows</strong>
+            </div>
+            <div class="stat-row">
+              <span>Orders Placed:</span>
+              <strong id="d1OrderCount">--</strong>
+            </div>
+            <div class="stat-row">
+              <span>Total Revenue:</span>
+              <strong id="d1Revenue" class="highlight-green">₹0</strong>
+            </div>
+            <div class="stat-row">
+              <span>Query Latency:</span>
+              <strong id="d1Latency">-- ms</strong>
+            </div>
+          </div>
+        </div>
+
+        <!-- KV Namespace Card -->
+        <div class="service-card">
+          <div class="card-top">
+            <div class="service-icon-box kv-color">⚡</div>
+            <div>
+              <h3>Cloudflare KV Namespace</h3>
+              <span class="binding-tag">Binding: CLOUDCART_KV (cloudcart-kv)</span>
+            </div>
+            <span class="badge-healthy">HEALTHY</span>
+          </div>
+          <div class="service-stats">
+            <div class="stat-row">
+              <span>Role:</span>
+              <strong>Cart Session Caching</strong>
+            </div>
+            <div class="stat-row">
+              <span>Expiration TTL:</span>
+              <strong>7 Days (604,800s)</strong>
+            </div>
+            <div class="stat-row">
+              <span>Cache Strategy:</span>
+              <strong>Edge-Distributed Read/Write</strong>
+            </div>
+            <div class="stat-row">
+              <span>Read/Write Probe:</span>
+              <strong id="kvLatency">-- ms</strong>
+            </div>
+          </div>
+        </div>
+
+        <!-- Durable Object Card -->
+        <div class="service-card">
+          <div class="card-top">
+            <div class="service-icon-box do-color">🌐</div>
+            <div>
+              <h3>Cloudflare Durable Objects</h3>
+              <span class="binding-tag">Binding: INVENTORY_DO (InventoryDO)</span>
+            </div>
+            <span class="badge-healthy">ACTIVE</span>
+          </div>
+          <div class="service-stats">
+            <div class="stat-row">
+              <span>Class Name:</span>
+              <strong>InventoryDO</strong>
+            </div>
+            <div class="stat-row">
+              <span>Storage Backend:</span>
+              <strong>SQLite Storage</strong>
+            </div>
+            <div class="stat-row">
+              <span>Connected WebSockets:</span>
+              <strong id="doClientsCount" class="highlight">1 Clients</strong>
+            </div>
+            <div class="stat-row">
+              <span>DO Uptime:</span>
+              <strong id="doUptime">-- sec</strong>
+            </div>
+            <div class="stat-row">
+              <span>DO Internal Latency:</span>
+              <strong id="doLatency">-- ms</strong>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cloudflare Pages & Service Binding Card -->
+        <div class="service-card">
+          <div class="card-top">
+            <div class="service-icon-box sb-color">🔗</div>
+            <div>
+              <h3>Cloudflare Service Binding</h3>
+              <span class="binding-tag">Binding: API_WORKER (cloudcart-worker)</span>
+            </div>
+            <span class="badge-healthy">CONNECTED</span>
+          </div>
+          <div class="service-stats">
+            <div class="stat-row">
+              <span>Frontend Host:</span>
+              <strong>Cloudflare Pages</strong>
+            </div>
+            <div class="stat-row">
+              <span>Backend Microservice:</span>
+              <strong>cloudcart-worker</strong>
+            </div>
+            <div class="stat-row">
+              <span>Edge IPC Mode:</span>
+              <strong class="highlight-green">Direct Memory Isolate</strong>
+            </div>
+            <div class="stat-row">
+              <span>Gateway Router:</span>
+              <strong>/functions/api/[[route]].js</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Real-Time Edge Log Stream (Live Terminal) -->
+    <section class="ops-section">
+      <div class="section-title-row">
+        <div>
+          <h2>📜 Live Edge Event Stream</h2>
+          <p class="section-desc">Real-time structured event logs streamed live over WebSockets from Cloudflare Workers & Durable Objects.</p>
+        </div>
+        <div class="terminal-controls">
+          <button class="btn-secondary-sm" id="pauseStreamBtn">⏸️ Pause</button>
+          <button class="btn-secondary-sm" id="clearLogsBtn">🧹 Clear</button>
+        </div>
+      </div>
+
+      <div class="terminal-card">
+        <div class="terminal-header">
+          <div class="terminal-dots">
+            <span class="dot red"></span>
+            <span class="dot yellow"></span>
+            <span class="dot green"></span>
+          </div>
+          <span class="terminal-title">cloudcart-edge-telemetry.log — live stream (WebSocket)</span>
+          <div class="terminal-filter-group">
+            <button class="filter-btn active" data-filter="all">ALL</button>
+            <button class="filter-btn" data-filter="D1">D1</button>
+            <button class="filter-btn" data-filter="KV">KV</button>
+            <button class="filter-btn" data-filter="DO">DURABLE_OBJECT</button>
+            <button class="filter-btn" data-filter="EDGE">EDGE</button>
+          </div>
+        </div>
+
+        <div class="terminal-body" id="terminalLogsContainer">
+          <div class="log-entry system">
+            <span class="log-time">[SYSTEM]</span>
+            <span class="log-msg">Connecting to Cloudflare Real-Time Telemetry Engine...</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="ops-footer">
+    <div class="footer-content">
+      <p>CloudCart Edge Observability & Monitoring Center • Powered by <strong>Cloudflare Workers, Pages, D1, KV, & Durable Objects</strong></p>
+    </div>
+  </footer>
+
+  <script type="module" src="js/monitor.js"></script>
+</body>
+</html>
