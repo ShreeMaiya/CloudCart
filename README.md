@@ -74,3 +74,27 @@ This repository includes a fully automated provisioning script (`scripts/setup.j
    - `CLOUDFLARE_API_TOKEN`: Cloudflare API Token with Workers, D1, KV, and Pages edit permissions.
    - `CLOUDFLARE_ACCOUNT_ID`: Found on your Cloudflare Dashboard homepage right sidebar.
 4. Any push to `main` (or clicking **Run workflow** under Actions) will automatically provision D1/KV, run database migrations, and deploy CloudCart to Cloudflare!
+
+---
+
+## ⚡ 3. Monitoring & Observability Surface (`/admin/monitoring/`)
+
+CloudCart includes a production-grade, Cloudflare-native edge monitoring and observability platform directly accessible from the Admin Portal.
+
+### Key Capabilities
+- **System Health & Subsystem Probes**: Active probes across all 7 architectural tiers (Pages, Worker, D1 SQLite `SELECT 1`, KV read/write/delete, `InventoryDO` `/health-ping`, and WebSockets).
+- **API Telemetry & Latencies**: Endpoint performance table calculating P50, P95, and P99 percentiles alongside 2xx/4xx/5xx status breakdowns.
+- **Time-Series Charts**: Pure responsive SVG charts for Invocations & Errors, Latency Percentiles (Avg, P50, P95, P99), and Worker CPU execution duration.
+- **D1 & KV Storage Insights**: D1 query counters, table row inventory, slow query logs (`> 35ms`), and 7-day persistent cart cache operations.
+- **Durable Objects & Real-Time Sync**: Live tracking of connected WebSocket sessions, catalog broadcast throughput, and serialized atomic purchase latencies.
+- **Centralized Logs & Error Center**: Filterable telemetry stream (`INFO`, `WARN`, `ERROR`), live search, and slide-out inspector drawer with formatted JSON payloads and stack traces.
+- **Distributed Tracing & Waterfall Visualizer**: Request correlation using universal `X-Request-ID` propagation and Gantt-style latency waterfalls across Pages ➜ Worker ➜ DO ➜ D1/KV.
+- **CI/CD Deployments & Business Correlation**: 5-stage automated provisioning visualizer, release audit log, and business analytics correlating infrastructure performance to checkout conversion rates and revenue velocity.
+
+### Automated Testing & Verification
+```bash
+# Run the 30-check automated verification test suite
+npm run test:monitoring
+```
+*Validates 100% of monitoring endpoints, core e-commerce CRUD regressions, and metric integrity rules.*
+

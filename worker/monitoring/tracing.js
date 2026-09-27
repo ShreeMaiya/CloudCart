@@ -1,145 +1,129 @@
 // CloudCart Monitoring - Distributed Tracing & Request Correlation Service
-// Tracks hop-by-hop latency across Pages, Worker Router, Durable Object actors, D1, and KV
+// Accurately tracks measured request spans without synthetic math or fabricated waterfalls
+import { METRIC_SOURCES, isDemoMode, formatMetric } from "./sources.js";
 
 const MAX_TRACES = 250;
 const tracesBuffer = [];
 
-// Seed realistic distributed traces representing CloudCart's multi-hop topology
-function generateSeedTraces() {
+/**
+ * Generate demo traces strictly when MONITORING_DEMO_MODE=true is enabled
+ */
+function generateDemoTraces() {
   const seeds = [];
   const now = Date.now();
-
-  const templates = [
-    {
-      endpoint: "/api/checkout",
-      method: "POST",
-      status: 200,
-      service: "InventoryDO / D1",
-      colo: "SIN",
-      spans: [
-        { id: "span_1", name: "Pages Edge Ingress", service: "Cloudflare Pages", durationMs: 2.4, details: { protocol: "HTTP/2", ipCountry: "SG" } },
-        { id: "span_2", name: "Worker Request Router & Security", service: "CloudCart Worker", durationMs: 1.8, details: { binding: "API_WORKER", routeMatched: "/api/checkout" } },
-        { id: "span_3", name: "Durable Object IPC Dispatch", service: "InventoryDO", durationMs: 4.2, details: { actor: "cloudcart-inventory-global", path: "/atomic-purchase" } },
-        { id: "span_4", name: "DO Actor Memory Lock & Stock Audit", service: "InventoryDO", durationMs: 12.6, details: { stockCheckPassed: true, itemsCount: 2 } },
-        { id: "span_5", name: "D1 Database Transaction Commit", service: "D1 Database", durationMs: 28.5, details: { statements: ["INSERT INTO orders", "UPDATE products SET stock = stock - ?"], isolation: "SERIALIZABLE" } },
-        { id: "span_6", name: "InventoryDO WebSocket Catalog Broadcast", service: "InventoryDO (WebSocket)", durationMs: 6.8, details: { targetClients: 4, messageType: "PRODUCT_UPDATED" } },
-        { id: "span_7", name: "Edge Response Assembly & Compression", service: "CloudCart Worker", durationMs: 1.7, details: { status: 200, bytes: 486 } }
-      ]
-    },
-    {
-      endpoint: "/api/products",
-      method: "GET",
-      status: 200,
-      service: "CloudCart Worker / D1",
-      colo: "LHR",
-      spans: [
-        { id: "span_1", name: "Pages Edge Ingress", service: "Cloudflare Pages", durationMs: 1.9, details: { protocol: "HTTP/3", ipCountry: "GB" } },
-        { id: "span_2", name: "Worker Router & Query Parameter Parse", service: "CloudCart Worker", durationMs: 1.2, details: { category: "all", search: "" } },
-        { id: "span_3", name: "D1 Database SQLite Execution", service: "D1 Database", durationMs: 11.4, details: { query: "SELECT * FROM products WHERE is_active = 1 ORDER BY created_at DESC", rowsReturned: 6 } },
-        { id: "span_4", name: "Response Serialization & Edge Delivery", service: "CloudCart Worker", durationMs: 1.5, details: { status: 200, bytes: 2340 } }
-      ]
-    },
-    {
-      endpoint: "/api/session/cart",
-      method: "GET",
-      status: 200,
-      service: "CloudCart Worker / KV",
-      colo: "SJC",
-      spans: [
-        { id: "span_1", name: "Pages Edge Ingress", service: "Cloudflare Pages", durationMs: 2.1, details: { protocol: "HTTP/2", ipCountry: "US" } },
-        { id: "span_2", name: "Worker Middleware & Session Extraction", service: "CloudCart Worker", durationMs: 1.4, details: { sessionId: "sess-849204" } },
-        { id: "span_3", name: "Cloudflare KV Namespace Read", service: "CLOUDCART_KV", durationMs: 14.8, details: { key: "cart:sess-849204", cacheStatus: "HIT" } },
-        { id: "span_4", name: "Edge JSON Serialization", service: "CloudCart Worker", durationMs: 1.1, details: { status: 200, itemsCount: 2 } }
-      ]
-    },
-    {
-      endpoint: "/api/metrics",
-      method: "GET",
-      status: 200,
-      service: "CloudCart Worker / D1",
-      colo: "FRA",
-      spans: [
-        { id: "span_1", name: "Pages Edge Ingress", service: "Cloudflare Pages", durationMs: 2.0, details: { protocol: "HTTP/2", ipCountry: "DE" } },
-        { id: "span_2", name: "Worker Routing & Admin Auth Check", service: "CloudCart Worker", durationMs: 1.6, details: { role: "admin" } },
-        { id: "span_3", name: "D1 Concurrent Aggregate SQLite Queries", service: "D1 Database", durationMs: 24.2, details: { queries: 5, tables: ["products", "orders", "feedback"] } },
-        { id: "span_4", name: "Metric Computation & Response Formatter", service: "CloudCart Worker", durationMs: 1.8, details: { status: 200, computedFields: 6 } }
-      ]
-    },
-    {
-      endpoint: "/api/checkout",
-      method: "POST",
-      status: 400,
-      service: "InventoryDO / D1",
-      colo: "NRT",
-      spans: [
-        { id: "span_1", name: "Pages Edge Ingress", service: "Cloudflare Pages", durationMs: 2.5, details: { protocol: "HTTP/2", ipCountry: "JP" } },
-        { id: "span_2", name: "Worker Router Dispatch", service: "CloudCart Worker", durationMs: 1.5, details: { route: "/api/checkout" } },
-        { id: "span_3", name: "Durable Object Dispatch", service: "InventoryDO", durationMs: 3.8, details: { actor: "cloudcart-inventory-global" } },
-        { id: "span_4", name: "DO Actor Stock Audit (Insufficient Stock)", service: "InventoryDO", durationMs: 8.2, details: { error: "Insufficient stock for requested item", requested: 10, available: 4 }, status: "ERROR" },
-        { id: "span_5", name: "Edge 400 Client Rejection Egress", service: "CloudCart Worker", durationMs: 1.2, details: { status: 400, errorReason: "STOCK_EXCEEDED" } }
-      ]
-    }
+  const endpoints = [
+    { endpoint: "/api/products", method: "GET", status: 200, service: "CloudCart Worker / D1", durationMs: 14.2 },
+    { endpoint: "/api/checkout", method: "POST", status: 200, service: "InventoryDO / D1", durationMs: 52.8 },
+    { endpoint: "/api/session/cart", method: "GET", status: 200, service: "CloudCart Worker / KV", durationMs: 16.5 },
+    { endpoint: "/api/metrics", method: "GET", status: 200, service: "CloudCart Worker / D1", durationMs: 21.0 }
   ];
 
-  for (let i = 0; i < 35; i++) {
-    const tpl = templates[i % templates.length];
-    const offsetMs = (i * 120000) + Math.floor(Math.random() * 45000);
-    const traceTime = new Date(now - offsetMs);
-    const traceId = `req_${Math.random().toString(36).substring(2, 10)}`;
-
-    let currentOffset = 0;
-    const computedSpans = tpl.spans.map((s, idx) => {
-      const dur = Number((s.durationMs * (0.85 + Math.random() * 0.35)).toFixed(1));
-      const spanObj = {
-        id: `span_${i}_${idx + 1}`,
-        name: s.name,
-        service: s.service,
-        startOffsetMs: Number(currentOffset.toFixed(1)),
-        durationMs: dur,
-        status: s.status || "OK",
-        details: s.details
-      };
-      currentOffset += dur;
-      return spanObj;
-    });
-
-    const totalDur = Number(currentOffset.toFixed(1));
+  for (let i = 0; i < 15; i++) {
+    const tpl = endpoints[i % endpoints.length];
+    const offsetMs = i * 180000;
+    const time = new Date(now - offsetMs);
+    const traceId = `demo_trace_${Math.random().toString(36).substring(2, 10)}`;
 
     seeds.push({
       traceId,
-      timestamp: traceTime.toISOString(),
-      epochMs: traceTime.getTime(),
+      timestamp: time.toISOString(),
+      epochMs: time.getTime(),
       method: tpl.method,
       endpoint: tpl.endpoint,
       status: tpl.status,
-      statusClass: tpl.status >= 500 ? "5xx" : tpl.status >= 400 ? "4xx" : "2xx",
+      statusClass: "2xx",
       service: tpl.service,
-      totalDurationMs: totalDur,
-      colo: tpl.colo,
-      hopCount: computedSpans.length,
-      spans: computedSpans
+      totalDurationMs: tpl.durationMs,
+      colo: "DEMO_COLO",
+      hopCount: 2,
+      source: METRIC_SOURCES.DEMO,
+      spans: [
+        {
+          id: `span_demo_${i}_1`,
+          name: "Worker Request Router & Handler Execution",
+          service: "CloudCart Worker",
+          startOffsetMs: 0,
+          durationMs: tpl.durationMs,
+          status: "OK",
+          source: METRIC_SOURCES.DEMO,
+          details: { endpoint: tpl.endpoint, note: "Demo simulated span" }
+        },
+        {
+          id: `span_demo_${i}_2`,
+          name: "Pages Edge Ingress",
+          service: "Cloudflare Pages",
+          startOffsetMs: null,
+          durationMs: null,
+          status: "UNAVAILABLE",
+          source: METRIC_SOURCES.UNAVAILABLE,
+          details: { reason: "Edge ingress timing unavailable from Worker isolate" }
+        }
+      ]
     });
   }
 
-  return seeds.sort((a, b) => b.epochMs - a.epochMs);
+  return seeds;
 }
-
-// Initialize seed traces
-tracesBuffer.push(...generateSeedTraces());
 
 /**
  * Record a distributed trace into the trace buffer
+ * Stores only real, measured execution spans
  */
 export function recordTrace(traceData) {
   const timestamp = new Date();
   const traceId = traceData.traceId || traceData.requestId || `req_${crypto.randomUUID().slice(0, 8)}`;
-  
-  // Calculate spans if provided, or build synthetic realistic spans matching actual execution
-  let spans = traceData.spans;
-  let totalDurationMs = Number((traceData.totalDurationMs || traceData.durationMs || 10).toFixed(1));
+  const totalDurationMs = Number((traceData.totalDurationMs ?? traceData.durationMs ?? 0).toFixed(1));
 
+  let spans = traceData.spans;
+
+  // If no granular sub-spans were provided, construct honest measured breakdown:
+  // Show Worker execution span (measured), and explicitly list unmeasured layers as UNAVAILABLE.
   if (!spans || !Array.isArray(spans) || spans.length === 0) {
-    spans = buildSpansForRequest(traceData.endpoint, traceData.method, traceData.status, totalDurationMs, traceData.service);
+    spans = [
+      {
+        id: `span_${traceId}_worker`,
+        name: `Worker Execution: ${traceData.method || "GET"} ${traceData.endpoint || "/"}`,
+        service: traceData.service || "CloudCart Worker",
+        startOffsetMs: 0,
+        durationMs: totalDurationMs,
+        status: (traceData.status >= 400) ? "ERROR" : "OK",
+        source: METRIC_SOURCES.APPLICATION_INSTRUMENTED,
+        details: {
+          measuredDurationMs: totalDurationMs,
+          endpoint: traceData.endpoint,
+          method: traceData.method,
+          status: traceData.status
+        }
+      },
+      {
+        id: `span_${traceId}_pages`,
+        name: "Cloudflare Pages Edge Ingress & Routing",
+        service: "Cloudflare Pages",
+        startOffsetMs: null,
+        durationMs: null,
+        status: "UNAVAILABLE",
+        source: METRIC_SOURCES.UNAVAILABLE,
+        details: {
+          reason: "Pages hop latency is not accessible from downstream Worker isolate."
+        }
+      }
+    ];
+
+    // If D1 was involved and query latency was measured, record it if present
+    if (traceData.d1DurationMs !== undefined && traceData.d1DurationMs !== null) {
+      spans.push({
+        id: `span_${traceId}_d1`,
+        name: "D1 Database Query Execution",
+        service: "D1 Database",
+        startOffsetMs: 0,
+        durationMs: Number(traceData.d1DurationMs.toFixed(1)),
+        status: "OK",
+        source: METRIC_SOURCES.APPLICATION_INSTRUMENTED,
+        details: {
+          measuredDurationMs: traceData.d1DurationMs
+        }
+      });
+    }
   }
 
   const sanitized = {
@@ -152,8 +136,9 @@ export function recordTrace(traceData) {
     statusClass: traceData.status >= 500 ? "5xx" : traceData.status >= 400 ? "4xx" : "2xx",
     service: traceData.service || "CloudCart Worker",
     totalDurationMs,
-    colo: traceData.colo || "Edge (Colo Auto)",
-    hopCount: spans.length,
+    colo: traceData.colo || "Edge Auto",
+    hopCount: spans.filter(s => s.durationMs !== null).length,
+    source: METRIC_SOURCES.APPLICATION_INSTRUMENTED,
     spans
   };
 
@@ -166,107 +151,27 @@ export function recordTrace(traceData) {
 }
 
 /**
- * Generate accurate hop-by-hop breakdown matching the route's architecture
+ * Filter traces by time window
  */
-function buildSpansForRequest(endpoint, method, status, totalDurationMs, service) {
-  const spans = [];
-  let currentOffset = 0;
+function filterTracesByTimeRange(items, range = "1h") {
+  const now = Date.now();
+  const rangesInMs = {
+    "15m": 15 * 60 * 1000,
+    "1h": 60 * 60 * 1000,
+    "6h": 6 * 60 * 60 * 1000,
+    "24h": 24 * 60 * 60 * 1000,
+    "7d": 7 * 24 * 60 * 60 * 1000
+  };
 
-  // Hop 1: Pages Edge Ingress
-  const ingressDur = Number((totalDurationMs * 0.12).toFixed(1));
-  spans.push({
-    id: "span_ingress",
-    name: "Pages Edge Ingress (functions/api/[[route]])",
-    service: "Cloudflare Pages",
-    startOffsetMs: 0,
-    durationMs: Math.max(1.2, ingressDur),
-    status: "OK",
-    details: { protocol: "HTTP/2", edgeTransit: "Direct Service Binding" }
-  });
-  currentOffset += Math.max(1.2, ingressDur);
-
-  // Hop 2: Worker Router
-  const routerDur = Number((totalDurationMs * 0.08).toFixed(1));
-  spans.push({
-    id: "span_router",
-    name: "Worker Router & Request Interceptor",
-    service: "CloudCart Worker",
-    startOffsetMs: Number(currentOffset.toFixed(1)),
-    durationMs: Math.max(1.0, routerDur),
-    status: "OK",
-    details: { path: endpoint, method }
-  });
-  currentOffset += Math.max(1.0, routerDur);
-
-  // Hop 3: Subsystem / Database / Actor execution
-  const executionDur = Number(Math.max(2.0, totalDurationMs - currentOffset - 2.0).toFixed(1));
-  if (endpoint.includes("/checkout")) {
-    const doDur = Number((executionDur * 0.45).toFixed(1));
-    const d1Dur = Number((executionDur * 0.55).toFixed(1));
-    spans.push({
-      id: "span_do",
-      name: "InventoryDO Actor Lock & Validation",
-      service: "InventoryDO",
-      startOffsetMs: Number(currentOffset.toFixed(1)),
-      durationMs: doDur,
-      status: status >= 400 ? "ERROR" : "OK",
-      details: { actor: "cloudcart-inventory-global", action: "atomic-purchase" }
-    });
-    currentOffset += doDur;
-    spans.push({
-      id: "span_d1",
-      name: "D1 Database Atomic Commit",
-      service: "D1 Database",
-      startOffsetMs: Number(currentOffset.toFixed(1)),
-      durationMs: d1Dur,
-      status: status >= 500 ? "ERROR" : "OK",
-      details: { db: "cloudcart-db", statement: "INSERT INTO orders (...)" }
-    });
-    currentOffset += d1Dur;
-  } else if (endpoint.includes("/session/cart")) {
-    spans.push({
-      id: "span_kv",
-      name: "Cloudflare KV Cache Operation",
-      service: "CLOUDCART_KV",
-      startOffsetMs: Number(currentOffset.toFixed(1)),
-      durationMs: executionDur,
-      status: status >= 400 ? "ERROR" : "OK",
-      details: { namespace: "cloudcart-kv", operation: method === "POST" ? "PUT" : "GET" }
-    });
-    currentOffset += executionDur;
-  } else {
-    // D1 or Worker Route
-    spans.push({
-      id: "span_d1",
-      name: "D1 SQLite Database Query",
-      service: "D1 Database",
-      startOffsetMs: Number(currentOffset.toFixed(1)),
-      durationMs: executionDur,
-      status: status >= 400 ? "ERROR" : "OK",
-      details: { db: "cloudcart-db", route: endpoint }
-    });
-    currentOffset += executionDur;
-  }
-
-  // Hop 4: Response Serialization & Edge Delivery
-  const egressDur = Number(Math.max(1.0, totalDurationMs - currentOffset).toFixed(1));
-  spans.push({
-    id: "span_egress",
-    name: "Edge Serialization & HTTP Delivery",
-    service: "CloudCart Worker",
-    startOffsetMs: Number(currentOffset.toFixed(1)),
-    durationMs: egressDur,
-    status: "OK",
-    details: { status, headersAttached: ["X-Request-ID", "Content-Type"] }
-  });
-
-  return spans;
+  const windowMs = rangesInMs[range] || rangesInMs["1h"];
+  const cutoff = now - windowMs;
+  return items.filter(t => t.epochMs >= cutoff);
 }
 
 /**
  * Query and filter traces
  */
-export function getTraces(filters = {}) {
+export function getTraces(filters = {}, env = null) {
   const {
     range = "1h",
     endpoint = "all",
@@ -278,84 +183,99 @@ export function getTraces(filters = {}) {
     offset = 0
   } = filters;
 
-  const now = Date.now();
-  const rangesMs = {
-    "15m": 15 * 60 * 1000,
-    "1h": 60 * 60 * 1000,
-    "6h": 6 * 60 * 60 * 1000,
-    "24h": 24 * 60 * 60 * 1000,
-    "7d": 7 * 24 * 60 * 60 * 1000
-  };
+  const demoActive = isDemoMode(env);
+  let sourceBuffer = tracesBuffer;
+  let dataSource = METRIC_SOURCES.APPLICATION_INSTRUMENTED;
 
-  const windowMs = rangesMs[range] || rangesMs["1h"];
-  const cutoff = now - windowMs;
+  if (demoActive && tracesBuffer.length === 0) {
+    sourceBuffer = generateDemoTraces();
+    dataSource = METRIC_SOURCES.DEMO;
+  } else if (tracesBuffer.length === 0) {
+    dataSource = METRIC_SOURCES.UNAVAILABLE;
+  }
 
-  let result = tracesBuffer.filter(t => t.epochMs >= cutoff);
+  // 1. Time range filter
+  let filtered = filterTracesByTimeRange(sourceBuffer, range);
 
-  // Compute summary stats before filters
-  const totalTracesCount = result.length;
-  let totalDurSum = 0;
-  let slowTracesCount = 0;
-  result.forEach(t => {
-    totalDurSum += t.totalDurationMs;
-    if (t.totalDurationMs > 35) slowTracesCount++;
-  });
-  const avgDurationMs = totalTracesCount > 0 ? Number((totalDurSum / totalTracesCount).toFixed(1)) : 0;
-
-  // Endpoint filter
+  // 2. Endpoint filter
   if (endpoint && endpoint !== "all") {
-    result = result.filter(t => t.endpoint === endpoint);
+    filtered = filtered.filter(t => t.endpoint === endpoint);
   }
 
-  // Status filter
+  // 3. Status filter
   if (status && status !== "all") {
-    if (status === "2xx") result = result.filter(t => t.status >= 200 && t.status < 300);
-    else if (status === "4xx") result = result.filter(t => t.status >= 400 && t.status < 500);
-    else if (status === "5xx") result = result.filter(t => t.status >= 500);
+    if (status === "errors") {
+      filtered = filtered.filter(t => t.status >= 400);
+    } else {
+      filtered = filtered.filter(t => t.statusClass === status);
+    }
   }
 
-  // Service filter
+  // 4. Service filter
   if (service && service !== "all") {
-    result = result.filter(t => t.service.toLowerCase().includes(service.toLowerCase()));
+    filtered = filtered.filter(t => t.service.toLowerCase().includes(service.toLowerCase()));
   }
 
-  // Min duration filter
+  // 5. Min Duration filter
   if (minDuration > 0) {
-    result = result.filter(t => t.totalDurationMs >= minDuration);
+    filtered = filtered.filter(t => t.totalDurationMs >= minDuration);
   }
 
-  // Search filter (traceId, endpoint, span name)
-  if (search && search.trim()) {
-    const q = search.trim().toLowerCase();
-    result = result.filter(t => {
-      const idMatch = t.traceId && t.traceId.toLowerCase().includes(q);
-      const epMatch = t.endpoint && t.endpoint.toLowerCase().includes(q);
-      const spanMatch = t.spans && t.spans.some(s => s.name.toLowerCase().includes(q) || s.service.toLowerCase().includes(q));
-      return idMatch || epMatch || spanMatch;
-    });
+  // 6. Search query
+  if (search && search.trim() !== "") {
+    const q = search.toLowerCase().trim();
+    filtered = filtered.filter(t =>
+      t.traceId.toLowerCase().includes(q) ||
+      t.endpoint.toLowerCase().includes(q) ||
+      (t.colo && t.colo.toLowerCase().includes(q))
+    );
   }
 
-  const filteredCount = result.length;
-  const pagedTraces = result.slice(offset, offset + limit);
+  const totalMatching = filtered.length;
+  const paginated = filtered.slice(offset, offset + limit);
+
+  // Compute summary metrics across matching traces
+  const durations = filtered.map(t => t.totalDurationMs);
+  const avgDuration = durations.length > 0
+    ? Number((durations.reduce((a, b) => a + b, 0) / durations.length).toFixed(1))
+    : null;
+  const maxDuration = durations.length > 0 ? Math.max(...durations) : null;
+  const errorTracesCount = filtered.filter(t => t.status >= 400).length;
 
   return {
-    timeRange: range,
+    source: dataSource,
+    isDemoData: demoActive && tracesBuffer.length === 0,
+    traceDataSourceNote: tracesBuffer.length > 0
+      ? "Trace data source: CloudCart Application Instrumentation. Spans reflect verified in-isolate measurements."
+      : "Trace data unavailable from configured Cloudflare native observability source. External distributed trace headers not present.",
     summary: {
-      totalTraces: totalTracesCount,
-      avgDurationMs,
-      slowTracesCount,
-      multiHopTracesCount: totalTracesCount
+      totalTraces: formatMetric(totalMatching, dataSource),
+      avgDurationMs: avgDuration !== null
+        ? formatMetric(avgDuration, METRIC_SOURCES.CALCULATED, { calculation: "mean of measured trace durations", unit: "ms" })
+        : formatMetric(null, METRIC_SOURCES.UNAVAILABLE, { reason: "No traces recorded in time window" }),
+      maxDurationMs: maxDuration !== null
+        ? formatMetric(maxDuration, METRIC_SOURCES.CALCULATED, { unit: "ms" })
+        : formatMetric(null, METRIC_SOURCES.UNAVAILABLE, { reason: "No traces recorded in time window" }),
+      errorTracesCount: formatMetric(errorTracesCount, dataSource)
     },
-    totalTraces: filteredCount,
-    limit,
-    offset,
-    traces: pagedTraces
+    traces: paginated,
+    pagination: {
+      total: totalMatching,
+      limit,
+      offset,
+      hasMore: offset + limit < totalMatching
+    }
   };
 }
 
 /**
- * Retrieve a single trace by ID for the waterfall visualizer
+ * Retrieve a single trace by ID
  */
-export function getTraceById(traceId) {
-  return tracesBuffer.find(t => t.traceId === traceId) || null;
+export function getTraceById(traceId, env = null) {
+  let trace = tracesBuffer.find(t => t.traceId === traceId);
+  if (!trace && isDemoMode(env)) {
+    const demo = generateDemoTraces();
+    trace = demo.find(t => t.traceId === traceId) || demo[0];
+  }
+  return trace || null;
 }

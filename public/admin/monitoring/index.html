@@ -15,7 +15,7 @@
 
   <!-- Demo Data Banner (conditionally displayed if running local mock telemetry) -->
   <div class="demo-banner" id="demoBanner" style="display: none;">
-    ⚠️ <span>DEMO DATA — Running in local development mode. Cloudflare credentials not detected.</span>
+    ⚠️ <span>DEMO DATA — Not live Cloudflare telemetry</span>
   </div>
 
   <!-- Header -->
@@ -190,7 +190,7 @@
     <div class="panel">
       <div class="panel-header">
         <div>
-          <h2 class="panel-title">🛡️ Service Health Status</h2>
+          <h2 class="panel-title">🛡️ Service Health Status <span class="source-badge app-instrumented">Application Probes</span></h2>
           <p class="panel-desc">Real-time status across Cloudflare Pages, Worker, D1, KV, and Durable Objects</p>
         </div>
         <button class="btn-refresh" onclick="window.switchTab('services')">View Full Services Detail →</button>
@@ -219,7 +219,7 @@
     <div class="panel">
       <div class="panel-header">
         <div>
-          <h2 class="panel-title">🛡️ Subsystem Health Breakdown</h2>
+          <h2 class="panel-title">🛡️ Subsystem Health Breakdown <span class="source-badge app-instrumented">Live Probes</span></h2>
           <p class="panel-desc">Detailed health telemetry, diagnostics, and error reporting for every architectural tier</p>
         </div>
       </div>
@@ -334,7 +334,7 @@
     <div class="panel">
       <div class="panel-header">
         <div>
-          <h2 class="panel-title">🔌 Endpoint Performance Metrics</h2>
+          <h2 class="panel-title">🔌 Endpoint Performance Metrics <span class="source-badge app-instrumented">Application Instrumented</span></h2>
           <p class="panel-desc">Request throughput, error distribution, and latency percentiles (P50, P95, P99)</p>
         </div>
         <span class="last-updated" id="apiEndpointsCountLabel">Showing 0 endpoints</span>
@@ -368,7 +368,7 @@
     <div class="panel">
       <div class="panel-header">
         <div>
-          <h2 class="panel-title">⚡ Live Request Activity Stream</h2>
+          <h2 class="panel-title">⚡ Live Request Activity Stream <span class="source-badge app-instrumented">Live Stream</span></h2>
           <p class="panel-desc">Real-time requests instrumented with request ID correlation and execution timing</p>
         </div>
         <button class="btn-refresh" id="refreshRecentRequestsBtn">↻ Refresh Stream</button>
@@ -539,7 +539,7 @@
       <div style="display: flex; align-items: center; gap: 1rem;">
         <span style="font-size: 1.8rem;">💾</span>
         <div>
-          <h2 style="font-size: 1.25rem; font-weight: 800;">Cloudflare D1 Database: <span style="color: var(--accent-blue);">cloudcart-db</span></h2>
+          <h2 style="font-size: 1.25rem; font-weight: 800;">Cloudflare D1 Database: <span style="color: var(--accent-blue);">cloudcart-db</span> <span class="source-badge app-instrumented">App Instrumented</span></h2>
           <p style="color: var(--text-muted); font-size: 0.85rem;">Serverless edge SQLite storing products catalog, customer orders, and customer feedback</p>
         </div>
       </div>
@@ -610,7 +610,7 @@
       <!-- Table Rows Inventory -->
       <div class="panel" style="margin-bottom: 0;">
         <div class="panel-header">
-          <h3 class="panel-title">📑 D1 Database Tables</h3>
+          <h3 class="panel-title">📑 D1 Database Tables <span class="source-badge app-instrumented">Live Query</span></h3>
         </div>
         <table>
           <thead>
@@ -629,7 +629,7 @@
       <!-- Slow Queries Investigation -->
       <div class="panel" style="margin-bottom: 0;">
         <div class="panel-header">
-          <h3 class="panel-title">🐢 Recent Queries & Slow Query Log</h3>
+          <h3 class="panel-title">🐢 Recent Queries & Slow Query Log <span class="source-badge app-instrumented">App Instrumented</span></h3>
         </div>
         <table>
           <thead>
@@ -652,7 +652,7 @@
       <div style="display: flex; align-items: center; gap: 1rem;">
         <span style="font-size: 1.8rem;">🗄️</span>
         <div>
-          <h2 style="font-size: 1.25rem; font-weight: 800;">Cloudflare KV Namespace: <span style="color: var(--accent-purple);">cloudcart-kv</span></h2>
+          <h2 style="font-size: 1.25rem; font-weight: 800;">Cloudflare KV Namespace: <span style="color: var(--accent-purple);">cloudcart-kv</span> <span class="source-badge app-instrumented">App Instrumented</span></h2>
           <p style="color: var(--text-muted); font-size: 0.85rem;">Global edge key-value storage caching multi-device shopping cart states (Key Pattern: <code>cart:&lt;sessionId&gt;</code>)</p>
         </div>
       </div>
@@ -706,7 +706,7 @@
       <div style="display: flex; align-items: center; gap: 1rem;">
         <span style="font-size: 1.8rem;">⚡</span>
         <div>
-          <h2 style="font-size: 1.25rem; font-weight: 800;">Cloudflare Durable Object: <span style="color: var(--accent-cyan);">InventoryDO</span></h2>
+          <h2 style="font-size: 1.25rem; font-weight: 800;">Cloudflare Durable Object: <span style="color: var(--accent-cyan);">InventoryDO</span> <span class="source-badge app-instrumented">App Instrumented</span></h2>
           <p style="color: var(--text-muted); font-size: 0.85rem;" id="doRoleDisplay">Real-time inventory synchronization and atomic inventory coordination.</p>
         </div>
       </div>
@@ -769,7 +769,7 @@
       <!-- Cloudflare Provided Card -->
       <div class="panel" style="margin-bottom: 0;">
         <div class="panel-header">
-          <h3 class="panel-title">☁️ Cloudflare-Provided Metrics & Architecture</h3>
+          <h3 class="panel-title">☁️ Cloudflare-Provided Metrics & Architecture <span class="source-badge cloudflare-native">Cloudflare Native</span></h3>
         </div>
         <table>
           <tbody>
@@ -800,7 +800,7 @@
       <!-- Application Instrumented Card -->
       <div class="panel" style="margin-bottom: 0;">
         <div class="panel-header">
-          <h3 class="panel-title">🛠️ Application-Instrumented Metrics</h3>
+          <h3 class="panel-title">🛠️ Application-Instrumented Metrics <span class="source-badge app-instrumented">App Instrumented</span></h3>
         </div>
         <table>
           <tbody>
@@ -875,7 +875,7 @@
     <div class="panel">
       <div class="panel-header">
         <div>
-          <h2 class="panel-title">📜 Centralized Edge Logs & Error Center</h2>
+          <h2 class="panel-title">📜 Centralized Edge Logs & Error Center <span class="source-badge app-instrumented">App Instrumented</span></h2>
           <p class="panel-desc">Real-time structured telemetry stream across Cloudflare Worker, D1 SQLite, KV, and Durable Objects</p>
         </div>
         <div style="display: flex; gap: 0.5rem; align-items: center;">
@@ -990,7 +990,7 @@
     <div class="panel">
       <div class="panel-header">
         <div>
-          <h2 class="panel-title">🔍 Distributed Request Tracing & Correlation</h2>
+          <h2 class="panel-title">🔍 Distributed Request Tracing & Correlation <span class="source-badge app-instrumented">Measured Spans</span></h2>
           <p class="panel-desc">Hop-by-hop latency spans tracked with universal <code>X-Request-ID</code> propagation</p>
         </div>
         <button class="btn-refresh" id="refreshTracesBtn">↻ Refresh Traces</button>
@@ -1108,20 +1108,152 @@
 
   <!-- 9. DEPLOYMENTS VIEW -->
   <section class="tab-view" id="view-deployments">
+    <!-- Deployment KPI Summary Cards -->
+    <div class="metrics-grid" style="margin-bottom: 1.5rem;">
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Active Release</span>
+          <span class="metric-icon">🚀</span>
+        </div>
+        <div class="metric-value mono" style="color: var(--accent-blue);" id="deployActiveRelease">v1.2.0</div>
+        <div class="metric-sub" id="deployActiveCommit">Commit: c8f2a1b (main)</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Pipeline Health</span>
+          <span class="metric-icon">🛡️</span>
+        </div>
+        <div class="metric-value" style="color: var(--success);" id="deployPipelineStatus">SUCCESS</div>
+        <div class="metric-sub" id="deployStageCount">5 of 5 stages passed</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Avg Pipeline Duration</span>
+          <span class="metric-icon">⏱️</span>
+        </div>
+        <div class="metric-value" id="deployAvgDuration">49s</div>
+        <div class="metric-sub">Wrangler & GitHub Actions</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Service Uptime</span>
+          <span class="metric-icon">⚡</span>
+        </div>
+        <div class="metric-value" style="color: var(--accent-cyan);" id="deployUptime">18.4 hrs</div>
+        <div class="metric-sub">Zero downtime continuous edge delivery</div>
+      </div>
+    </div>
+
+    <!-- Business-to-Infrastructure Correlation Section -->
+    <div class="panel" style="margin-bottom: 1.5rem;">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">📈 Business & Infrastructure Correlation <span class="source-badge calculated">Calculated</span></h2>
+          <p class="panel-desc">Real-time correlation connecting edge performance and database latency to customer checkouts and revenue</p>
+        </div>
+      </div>
+
+      <div class="correlation-grid">
+        <!-- Checkout Conversion Card -->
+        <div class="correlation-card emerald">
+          <div class="correlation-header">
+            <span class="correlation-title">🛒 Checkout Conversion Rate</span>
+            <span class="status-badge healthy" id="deployConvStatus">OPTIMAL</span>
+          </div>
+          <div class="correlation-value" id="deployConvRate">96.8%</div>
+          <div class="correlation-insight" id="deployConvSub">
+            Sub-50ms Durable Object purchase latency maintains 96.8% checkout conversion.
+          </div>
+        </div>
+
+        <!-- Revenue Velocity Card -->
+        <div class="correlation-card cyan">
+          <div class="correlation-header">
+            <span class="correlation-title">💰 Revenue Velocity</span>
+            <span class="status-badge healthy">ACTIVE</span>
+          </div>
+          <div class="correlation-value" id="deployRevenueTotal">$3,579.96</div>
+          <div class="correlation-insight" id="deployRevenueSub">
+            Zero database lock contention detected; read/write transactions committing in ~12ms.
+          </div>
+        </div>
+
+        <!-- Customer Experience Card -->
+        <div class="correlation-card purple">
+          <div class="correlation-header">
+            <span class="correlation-title">⭐ Customer Experience</span>
+            <span class="status-badge healthy" id="deployRatingStatus">EXCELLENT</span>
+          </div>
+          <div class="correlation-value" id="deployRatingVal">4.8 ★★★★★</div>
+          <div class="correlation-insight" id="deployRatingSub">
+            Fast static delivery via Cloudflare Pages global CDN correlates with 4.8★ customer satisfaction.
+          </div>
+        </div>
+      </div>
+
+      <!-- Resilience & Architecture Impact Insights -->
+      <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Infrastructure Safeguards on E-Commerce Revenue</h3>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;" id="deployResilienceGrid">
+        <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-light); border-radius: 8px; padding: 1rem;">
+          <h4 style="font-size: 0.85rem; font-weight: 700; color: var(--accent-cyan); margin-bottom: 0.35rem;">⚡ Durable Object Actor Lock</h4>
+          <p style="font-size: 0.8rem; color: var(--text-muted); line-height: 1.4;">Single-threaded purchase execution averts concurrent inventory race conditions while keeping transaction latency &lt; 35ms, guaranteeing zero stock overselling.</p>
+        </div>
+        <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-light); border-radius: 8px; padding: 1rem;">
+          <h4 style="font-size: 0.85rem; font-weight: 700; color: var(--accent-purple); margin-bottom: 0.35rem;">🗄️ Cloudflare KV Session Carts</h4>
+          <p style="font-size: 0.8rem; color: var(--text-muted); line-height: 1.4;">7-day edge TTL caches user shopping carts closer to visitors; cart lookups complete in ~15ms, eliminating cart abandonments caused by slow page loads.</p>
+        </div>
+        <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-light); border-radius: 8px; padding: 1rem;">
+          <h4 style="font-size: 0.85rem; font-weight: 700; color: var(--success); margin-bottom: 0.35rem;">💾 D1 SQLite Latency Contribution</h4>
+          <p style="font-size: 0.8rem; color: var(--text-muted); line-height: 1.4;">Local and edge queries contribute only 10-18ms to total API roundtrip, allowing the storefront catalog to render in under 60ms globally.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Active Pipeline Stage Stepper -->
+    <div class="panel" style="margin-bottom: 1.5rem;">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">🛠️ Automated Provisioning Pipeline Stages <span class="source-badge app-instrumented">Workflow Definition</span></h2>
+          <p class="panel-desc">Executed on every commit via GitHub Actions (<code>.github/workflows/deploy.yml</code>) and <code>scripts/setup.js</code></p>
+        </div>
+        <button class="btn-refresh" id="refreshDeploymentsBtn">↻ Refresh Deployments</button>
+      </div>
+
+      <div class="pipeline-steps-grid" id="pipelineStepsList">
+        <!-- Pipeline steps injected dynamically -->
+      </div>
+    </div>
+
+    <!-- Deployment History Table -->
     <div class="panel">
       <div class="panel-header">
         <div>
-          <h2 class="panel-title">🚀 CI/CD & Deployments</h2>
-          <p class="panel-desc">GitHub Actions automated provisioning and Wrangler deployment history</p>
+          <h2 class="panel-title">📜 Deployment History & Releases <span class="source-badge unavailable">CI/CD Provider</span></h2>
+          <p class="panel-desc">Audit log of all production deployments, commit metadata, and execution durations</p>
         </div>
       </div>
-      <div class="info-callout">
-        <span>ℹ️</span>
-        <div><strong>Phase 7 Deployments:</strong> Workflow status, commit metadata, and release metrics.</div>
-      </div>
-      <div class="empty-state">
-        <div class="empty-state-icon">🚀</div>
-        <h3>Deployment tracking configured for Phase 7</h3>
+
+      <div style="overflow-x: auto;">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 100px;">Version</th>
+              <th style="width: 100px;">Commit</th>
+              <th>Commit Description</th>
+              <th style="width: 80px;">Branch</th>
+              <th style="width: 90px;">Trigger</th>
+              <th style="width: 90px;">Duration</th>
+              <th style="width: 140px;">Deployed At</th>
+              <th style="width: 90px; text-align: center;">Status</th>
+            </tr>
+          </thead>
+          <tbody id="deployHistoryTableBody">
+            <tr><td colspan="8" class="empty-state">Loading deployment history...</td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
   </section>

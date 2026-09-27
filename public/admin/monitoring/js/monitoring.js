@@ -12,6 +12,48 @@ let refreshTimer = null;
 let lastData = null;
 let cachedEndpoints = [];
 
+// Metric Value and Source Extraction Helpers
+function getVal(m, fallback = "--") {
+  if (m === null || m === undefined) return fallback;
+  if (typeof m === "object" && "value" in m) {
+    if (m.value === null || m.value === undefined) return fallback;
+    return m.value;
+  }
+  return m;
+}
+
+function formatNum(m, fallback = "--") {
+  const val = getVal(m, null);
+  if (val === null || val === undefined || isNaN(val)) return fallback;
+  return Number(val).toLocaleString();
+}
+
+function renderSourceBadge(source) {
+  if (!source) return "";
+  const s = String(source).toUpperCase();
+  let label = source;
+  let cls = "unavailable";
+
+  if (s === "CLOUDFLARE_NATIVE" || s === "CLOUDFLARE_GRAPHQL") {
+    label = "Cloudflare Native";
+    cls = "cloudflare-native";
+  } else if (s === "APPLICATION_INSTRUMENTED" || s === "APPLICATION_PROBE") {
+    label = "App Instrumented";
+    cls = "app-instrumented";
+  } else if (s === "CALCULATED") {
+    label = "Calculated";
+    cls = "calculated";
+  } else if (s === "DEMO") {
+    label = "Demo Data";
+    cls = "demo";
+  } else if (s === "UNAVAILABLE") {
+    label = "Unavailable";
+    cls = "unavailable";
+  }
+
+  return `<span class="source-badge ${cls}">${label}</span>`;
+}
+
 // DOM Elements
 const timeRangeChips = document.getElementById("timeRangeChips");
 const autoRefreshSelect = document.getElementById("autoRefreshSelect");
@@ -210,7 +252,12 @@ function renderOverview(data) {
 
   // Show/Hide Demo Data Banner
   if (demoBanner) {
-    demoBanner.style.display = isDemoData ? "flex" : "none";
+    if (isDemoData) {
+      demoBanner.style.display = "flex";
+      demoBanner.innerHTML = "⚠️ <span>DEMO DATA — Not live Cloudflare telemetry. Local simulation mode.</span>";
+    } else {
+      demoBanner.style.display = "none";
+    }
   }
 
   // System Health Status Badge & Icon
@@ -230,25 +277,46 @@ function renderOverview(data) {
   }
 
   // Count Pills
-  if (countHealthy) countHealthy.textContent = systemHealth.healthyServices;
-  if (countDegraded) countDegraded.textContent = systemHealth.degradedServices;
-  if (countFailed) countFailed.textContent = systemHealth.failedServices;
-  if (countTotal) countTotal.textContent = systemHealth.totalServices;
+  if (countHealthy) countHealthy.textContent = systemHealth.healthyServices ?? 0;
+  if (countDegraded) countDegraded.textContent = systemHealth.degradedServices ?? 0;
+  if (countFailed) countFailed.textContent = systemHealth.failedServices ?? 0;
+  if (countTotal) countTotal.textContent = systemHealth.totalServices ?? 0;
 
-  // Main Metrics
-  if (valTotalRequests) valTotalRequests.textContent = Number(mainMetrics.totalRequests).toLocaleString();
-  if (valRequestRate) valRequestRate.textContent = `${mainMetrics.requestRatePerSec} req/sec`;
+  // Main Metrics with safe extraction and honest formatting
+  if (valTotalRequests) valTotalRequests.textContent = formatNum(mainMetrics.totalRequests, "0");
+  if (valRequestRate) valRequestRate.textContent = `${getVal(mainMetrics.requestRatePerMin, 0)} req/min`;
+  
   if (valErrorRate) {
-    valErrorRate.textContent = `${mainMetrics.errorRatePercent}%`;
-    valErrorRate.style.color = mainMetrics.errorRatePercent > 1.0 ? "var(--danger)" : mainMetrics.errorRatePercent > 0.5 ? "var(--warning)" : "var(--success)";
+    const errRate = getVal(mainMetrics.errorRatePercent, null);
+    valErrorRate.textContent = errRate !== null ? `${errRate}%` : "N/A";
+    valErrorRate.style.color = (errRate !== null && errRate > 1.0) ? "var(--danger)" : (errRate !== null && errRate > 0) ? "var(--warning)" : "var(--success)";
   }
-  if (valAvgLatency) valAvgLatency.textContent = `${mainMetrics.avgLatencyMs} ms`;
-  if (valLatencySpread) valLatencySpread.textContent = `P50: ${mainMetrics.p50LatencyMs}ms | P95: ${mainMetrics.p95LatencyMs}ms`;
-  if (valP99Latency) valP99Latency.textContent = `${mainMetrics.p99LatencyMs} ms`;
-  if (valCpuTime) valCpuTime.textContent = `${mainMetrics.workerCpuTimeMs} ms`;
-  if (valActiveWS) valActiveWS.textContent = mainMetrics.activeWebSocketConnections;
-  if (valD1Activity) valD1Activity.textContent = mainMetrics.d1QueryActivity;
-  if (valKVActivity) valKVActivity.textContent = mainMetrics.kvOperationActivity;
+
+  if (valAvgLatency) {
+    const avgLat = getVal(mainMetrics.avgLatencyMs, null);
+    valAvgLatency.textContent = avgLat !== null ? `${avgLat} ms` : "N/A";
+  }
+
+  if (valLatencySpread) {
+    const p50 = getVal(mainMetrics.p50LatencyMs, null);
+    const p95 = getVal(mainMetrics.p95LatencyMs, null);
+    valLatencySpread.textContent = `P50: ${p50 !== null ? p50 + "ms" : "N/A"} | P95: ${p95 !== null ? p95 + "ms" : "N/A"}`;
+  }
+
+  if (valP99Latency) {
+    const p99 = getVal(mainMetrics.p99LatencyMs, null);
+    valP99Latency.textContent = p99 !== null ? `${p99} ms` : "N/A";
+  }
+
+  if (valCpuTime) {
+    const cpu = getVal(mainMetrics.workerCpuTimeMs, null);
+    valCpuTime.textContent = cpu !== null ? `${cpu} ms` : "Unavailable";
+    valCpuTime.title = cpu === null ? "Worker CPU time requires Cloudflare GraphQL API" : "";
+  }
+
+  if (valActiveWS) valActiveWS.textContent = formatNum(mainMetrics.activeWebSocketConnections, "0");
+  if (valD1Activity) valD1Activity.textContent = mainMetrics.d1QueryActivity || "Active (Probe OK)";
+  if (valKVActivity) valKVActivity.textContent = mainMetrics.kvOperationActivity || "Active (Probe OK)";
 
   // Render Services Overview Table
   renderServicesSummaryTable(services);
@@ -260,11 +328,15 @@ function renderServicesSummaryTable(services) {
   overviewServicesTableBody.innerHTML = services.map(s => {
     const statusClass = s.status.toLowerCase();
     const timeStr = s.lastChecked ? new Date(s.lastChecked).toLocaleTimeString() : "--";
-    const latencyDisplay = s.responseTimeMs !== null ? `${s.responseTimeMs} ms` : "N/A";
+    const latencyDisplay = s.responseTimeMs !== null && s.responseTimeMs !== undefined ? `${s.responseTimeMs} ms` : "N/A";
+    const sourceBadge = renderSourceBadge(s.source);
 
     return `
       <tr>
-        <td style="font-weight: 700;">${s.name}</td>
+        <td style="font-weight: 700;">
+          ${s.name}
+          <div style="margin-top: 0.2rem;">${sourceBadge}</div>
+        </td>
         <td><span style="color: var(--accent-blue); font-weight: 600;">${s.tier}</span></td>
         <td><span class="status-badge ${statusClass}">${s.status}</span></td>
         <td class="mono">${latencyDisplay}</td>
@@ -285,12 +357,16 @@ function renderDetailedServices(services) {
   servicesDetailedTableBody.innerHTML = services.map(s => {
     const statusClass = s.status.toLowerCase();
     const timeStr = s.lastChecked ? new Date(s.lastChecked).toLocaleTimeString() : "--";
-    const latencyDisplay = s.responseTimeMs !== null ? `${s.responseTimeMs} ms` : "N/A";
+    const latencyDisplay = s.responseTimeMs !== null && s.responseTimeMs !== undefined ? `${s.responseTimeMs} ms` : "N/A";
     const diagnostic = s.error ? `<span style="color: var(--danger); font-weight: 600;">⚠️ ${s.error}</span>` : `<span style="color: var(--success);">Operational</span>`;
+    const sourceBadge = renderSourceBadge(s.source);
 
     return `
       <tr>
-        <td style="font-weight: 700;">${s.name}</td>
+        <td style="font-weight: 700;">
+          ${s.name}
+          <div style="margin-top: 0.25rem;">${sourceBadge}</div>
+        </td>
         <td><span style="color: var(--accent-blue); font-weight: 600;">${s.tier}</span></td>
         <td style="color: var(--text-muted); font-size: 0.84rem; max-width: 280px;">${s.description}</td>
         <td><span class="status-badge ${statusClass}">${s.status}</span></td>
@@ -334,15 +410,27 @@ async function loadApiMetrics() {
 function renderApiSummary(summary) {
   if (!summary) return;
 
-  if (apiSummaryTotalRequests) apiSummaryTotalRequests.textContent = Number(summary.totalRequests).toLocaleString();
+  if (apiSummaryTotalRequests) apiSummaryTotalRequests.textContent = formatNum(summary.totalRequests, "0");
   if (apiSummaryErrorRate) {
-    apiSummaryErrorRate.textContent = `${summary.overallErrorRate}%`;
-    apiSummaryErrorRate.style.color = summary.overallErrorRate > 1.0 ? "var(--danger)" : summary.overallErrorRate > 0.5 ? "var(--warning)" : "var(--success)";
+    const errRate = getVal(summary.overallErrorRate, null);
+    apiSummaryErrorRate.textContent = errRate !== null ? `${errRate}%` : "N/A";
+    apiSummaryErrorRate.style.color = (errRate !== null && errRate > 1.0) ? "var(--danger)" : (errRate !== null && errRate > 0) ? "var(--warning)" : "var(--success)";
   }
-  if (apiSummaryErrorsCount) apiSummaryErrorsCount.textContent = `${summary.totalErrors} total error${summary.totalErrors === 1 ? '' : 's'}`;
-  if (apiSummaryAvgLatency) apiSummaryAvgLatency.textContent = `${summary.overallAvgLatency} ms`;
-  if (apiSummaryP95Latency) apiSummaryP95Latency.textContent = `${summary.overallP95} ms`;
-  if (apiSummaryP50P99) apiSummaryP50P99.textContent = `P50: ${summary.overallP50} ms | P99: ${summary.overallP99} ms`;
+  if (apiSummaryErrorsCount) apiSummaryErrorsCount.textContent = `${formatNum(summary.totalErrors, "0")} total error(s)`;
+  
+  if (apiSummaryAvgLatency) {
+    const avg = getVal(summary.overallAvgLatency, null);
+    apiSummaryAvgLatency.textContent = avg !== null ? `${avg} ms` : "N/A";
+  }
+  if (apiSummaryP95Latency) {
+    const p95 = getVal(summary.overallP95, null);
+    apiSummaryP95Latency.textContent = p95 !== null ? `${p95} ms` : "N/A";
+  }
+  if (apiSummaryP50P99) {
+    const p50 = getVal(summary.overallP50, "N/A");
+    const p99 = getVal(summary.overallP99, "N/A");
+    apiSummaryP50P99.textContent = `P50: ${p50 !== "N/A" ? p50 + " ms" : "N/A"} | P99: ${p99 !== "N/A" ? p99 + " ms" : "N/A"}`;
+  }
   if (apiSummaryWindowLabel) apiSummaryWindowLabel.textContent = `Window: Last ${activeRange}`;
 }
 
@@ -376,25 +464,32 @@ function renderApiEndpointsTable(endpoints) {
   }
 
   apiEndpointsTableBody.innerHTML = endpoints.map(ep => {
-    const errorRateClass = ep.errorRatePercent > 2.0 ? 'style="color: var(--danger); font-weight: 700;"' : ep.errorRatePercent > 0 ? 'style="color: var(--warning); font-weight: 700;"' : 'style="color: var(--success);"';
+    const errRate = getVal(ep.errorRatePercent, 0);
+    const errorRateClass = errRate > 2.0 ? 'style="color: var(--danger); font-weight: 700;"' : errRate > 0 ? 'style="color: var(--warning); font-weight: 700;"' : 'style="color: var(--success);"';
+    const sourceBadge = renderSourceBadge(ep.source);
+    const avg = getVal(ep.avgLatencyMs, null);
+    const p50 = getVal(ep.p50Ms, null);
+    const p95 = getVal(ep.p95Ms, null);
+    const p99 = getVal(ep.p99Ms, null);
 
     return `
       <tr>
         <td style="font-family: var(--font-mono); font-weight: 700; color: var(--accent-blue);">
           ${ep.endpoint}
+          <div style="margin-top: 0.15rem;">${sourceBadge}</div>
         </td>
         <td style="color: var(--text-muted); font-size: 0.82rem;">${ep.service}</td>
-        <td class="mono" style="font-weight: 700;">${Number(ep.requestCount).toLocaleString()}</td>
-        <td class="mono" style="color: var(--success);">${Number(ep.successCount).toLocaleString()}</td>
-        <td class="mono" style="color: ${ep.errorCount > 0 ? 'var(--danger)' : 'var(--text-muted)'}; font-weight: 700;">${ep.errorCount}</td>
-        <td class="mono" ${errorRateClass}>${ep.errorRatePercent}%</td>
-        <td class="mono" style="color: var(--success); font-size: 0.82rem;">${ep.count2xx}</td>
-        <td class="mono" style="color: ${ep.count4xx > 0 ? 'var(--warning)' : 'var(--text-muted)'}; font-size: 0.82rem;">${ep.count4xx}</td>
-        <td class="mono" style="color: ${ep.count5xx > 0 ? 'var(--danger)' : 'var(--text-muted)'}; font-size: 0.82rem;">${ep.count5xx}</td>
-        <td class="mono" style="font-weight: 700;">${ep.avgLatencyMs} ms</td>
-        <td class="mono">${ep.p50Ms} ms</td>
-        <td class="mono" style="color: ${ep.p95Ms > 100 ? 'var(--warning)' : 'inherit'}; font-weight: 700;">${ep.p95Ms} ms</td>
-        <td class="mono" style="color: ${ep.p99Ms > 150 ? 'var(--danger)' : 'inherit'};">${ep.p99Ms} ms</td>
+        <td class="mono" style="font-weight: 700;">${formatNum(ep.requestCount, "0")}</td>
+        <td class="mono" style="color: var(--success);">${formatNum(ep.successCount, "0")}</td>
+        <td class="mono" style="color: ${getVal(ep.errorCount, 0) > 0 ? 'var(--danger)' : 'var(--text-muted)'}; font-weight: 700;">${formatNum(ep.errorCount, "0")}</td>
+        <td class="mono" ${errorRateClass}>${errRate}%</td>
+        <td class="mono" style="color: var(--success); font-size: 0.82rem;">${formatNum(ep.count2xx, "0")}</td>
+        <td class="mono" style="color: ${getVal(ep.count4xx, 0) > 0 ? 'var(--warning)' : 'var(--text-muted)'}; font-size: 0.82rem;">${formatNum(ep.count4xx, "0")}</td>
+        <td class="mono" style="color: ${getVal(ep.count5xx, 0) > 0 ? 'var(--danger)' : 'var(--text-muted)'}; font-size: 0.82rem;">${formatNum(ep.count5xx, "0")}</td>
+        <td class="mono" style="font-weight: 700;">${avg !== null ? avg + " ms" : "N/A"}</td>
+        <td class="mono">${p50 !== null ? p50 + " ms" : "N/A"}</td>
+        <td class="mono" style="color: ${(p95 !== null && p95 > 100) ? 'var(--warning)' : 'inherit'}; font-weight: 700;">${p95 !== null ? p95 + " ms" : "N/A"}</td>
+        <td class="mono" style="color: ${(p99 !== null && p99 > 150) ? 'var(--danger)' : 'inherit'};">${p99 !== null ? p99 + " ms" : "N/A"}</td>
       </tr>
     `;
   }).join("");
@@ -505,40 +600,62 @@ async function loadPerformanceMetrics() {
 }
 
 function renderPerformanceSummary(data) {
-  const { summary, source, isDemoData, note } = data;
+  const { summary, source, isDemoData, note, reason } = data;
 
   if (perfSourceBadge) {
-    if (source === "CLOUDFLARE_GRAPHQL") {
-      perfSourceBadge.textContent = "Cloudflare GraphQL";
+    if (source === "CLOUDFLARE_NATIVE" || source === "CLOUDFLARE_GRAPHQL") {
+      perfSourceBadge.textContent = "Cloudflare Native (GraphQL)";
       perfSourceBadge.className = "status-badge healthy";
-    } else {
+    } else if (source === "DEMO") {
       perfSourceBadge.textContent = "Local Dev Mode (DEMO DATA)";
       perfSourceBadge.className = "status-badge warning";
+    } else {
+      perfSourceBadge.textContent = "Unavailable (Cloudflare GraphQL)";
+      perfSourceBadge.className = "status-badge unavailable";
     }
   }
 
-  if (perfNoteText && note) {
-    perfNoteText.textContent = note;
+  if (perfNoteText) {
+    perfNoteText.textContent = note || reason || (source === "CLOUDFLARE_NATIVE" ? "Live Workers Analytics stream." : "Cloudflare GraphQL analytics not configured in environment.");
   }
 
   if (!summary) return;
 
-  if (perfTotalRequests) perfTotalRequests.textContent = Number(summary.totalRequests).toLocaleString();
+  if (perfTotalRequests) perfTotalRequests.textContent = formatNum(summary.totalRequests, "N/A");
   if (perfRequestRate) {
     const rangeMins = activeRange === "15m" ? 15 : activeRange === "1h" ? 60 : activeRange === "6h" ? 360 : activeRange === "24h" ? 1440 : 10080;
-    const reqPerMin = Number((summary.totalRequests / rangeMins).toFixed(1));
-    perfRequestRate.textContent = `${reqPerMin} req/min`;
+    const reqs = getVal(summary.totalRequests, null);
+    if (reqs !== null && reqs !== undefined) {
+      const reqPerMin = Number((reqs / rangeMins).toFixed(1));
+      perfRequestRate.textContent = `${reqPerMin} req/min`;
+    } else {
+      perfRequestRate.textContent = "N/A req/min";
+    }
   }
 
   if (perfErrorRate) {
-    perfErrorRate.textContent = `${summary.errorRatePercent}%`;
-    perfErrorRate.style.color = summary.errorRatePercent > 1.0 ? "var(--danger)" : summary.errorRatePercent > 0 ? "var(--warning)" : "var(--success)";
+    const errRate = getVal(summary.errorRatePercent, null);
+    perfErrorRate.textContent = errRate !== null ? `${errRate}%` : "N/A";
+    perfErrorRate.style.color = (errRate !== null && errRate > 1.0) ? "var(--danger)" : (errRate !== null && errRate > 0) ? "var(--warning)" : "var(--success)";
   }
-  if (perfTotalErrors) perfTotalErrors.textContent = `${summary.totalErrors} total error${summary.totalErrors === 1 ? '' : 's'}`;
-  if (perfAvgDuration) perfAvgDuration.textContent = `${summary.avgDurationMs} ms`;
-  if (perfAvgCpu) perfAvgCpu.textContent = `${summary.avgCpuTimeMs} ms`;
-  if (perfP95P99) perfP95P99.textContent = `${summary.p95} ms / ${summary.p99} ms`;
-  if (perfP50) perfP50.textContent = `P50: ${summary.p50} ms`;
+  if (perfTotalErrors) perfTotalErrors.textContent = `${formatNum(summary.totalErrors, "N/A")} total error(s)`;
+  if (perfAvgDuration) {
+    const dur = getVal(summary.avgDurationMs, null);
+    perfAvgDuration.textContent = dur !== null ? `${dur} ms` : "N/A";
+  }
+  if (perfAvgCpu) {
+    const cpu = getVal(summary.avgCpuTimeMs, null);
+    perfAvgCpu.textContent = cpu !== null ? `${cpu} ms` : "N/A";
+  }
+  if (perfP95P99) {
+    const p95 = getVal(summary.p95, "N/A");
+    const p99 = getVal(summary.p99, "N/A");
+    perfP95P99.textContent = `P95: ${p95 !== "N/A" ? p95 + " ms" : "N/A"} | P99: ${p99 !== "N/A" ? p99 + " ms" : "N/A"}`;
+  }
+  if (perfP50) {
+    const p50 = getVal(summary.p50, null);
+    perfP50.textContent = `P50: ${p50 !== null ? p50 + " ms" : "N/A"}`;
+  }
 }
 
 // 1. Invocations & Errors SVG Chart
@@ -877,42 +994,61 @@ function renderD1Metrics(data) {
     d1StatusBadge.className = `status-badge ${data.status.toLowerCase()}`;
   }
 
-  if (d1LatencyContributionText && data.latencyContribution) {
+  if (d1LatencyContributionText) {
+    const nativeAnalytics = data.cloudflareNativeAnalytics;
+    const nativeLabel = nativeAnalytics?.source === "CLOUDFLARE_NATIVE"
+      ? "Cloudflare D1 Platform Analytics: Active"
+      : `Cloudflare D1 Platform Analytics: ${nativeAnalytics?.reason || 'Unavailable (GraphQL credentials not configured)'}`;
+    
     d1LatencyContributionText.innerHTML = `
-      <strong>Latency Contribution Analysis:</strong> ${data.latencyContribution.summary}
+      <strong>Source Status:</strong> CloudCart Application Instrumentation: <em>Active in-isolate</em> | ${nativeLabel}
     `;
   }
 
-  if (d1TotalQueries && data.queryActivity) {
-    d1TotalQueries.textContent = Number(data.queryActivity.totalQueries).toLocaleString();
-    d1ReadsWritesSub.textContent = `Reads: ${Number(data.queryActivity.readsCount).toLocaleString()} | Writes: ${Number(data.queryActivity.writesCount).toLocaleString()} (Ratio: ${data.queryActivity.readWriteRatio}:1)`;
-    d1AvgQueryLatency.textContent = `${data.queryActivity.avgQueryLatencyMs} ms`;
-    d1P95Latency.textContent = `P95: ${data.queryActivity.p95QueryLatencyMs} ms | Probe: ${data.probeLatencyMs} ms`;
-    d1SlowQueriesCount.textContent = data.queryActivity.slowQueriesCount;
-    d1QueryErrors.textContent = data.queryActivity.queryErrorsCount;
+  const appTel = data.applicationTelemetry || data.queryActivity || {};
+  if (d1TotalQueries) {
+    d1TotalQueries.textContent = formatNum(appTel.totalQueries, "0");
+    const reads = formatNum(appTel.reads ?? appTel.readsCount, "0");
+    const writes = formatNum(appTel.writes ?? appTel.writesCount, "0");
+    d1ReadsWritesSub.textContent = `Reads: ${reads} | Writes: ${writes} (Application Instrumented)`;
+    
+    const avg = getVal(appTel.avgQueryLatencyMs, getVal(data.probe?.probeLatencyMs, null));
+    d1AvgQueryLatency.textContent = avg !== null ? `${avg} ms` : "N/A";
+    
+    const probe = getVal(data.probe?.probeLatencyMs, null);
+    d1P95Latency.textContent = `Probe (SELECT 1): ${probe !== null ? probe + " ms" : "N/A"}`;
+    d1SlowQueriesCount.textContent = data.slowQueriesCount ?? 0;
+    d1QueryErrors.textContent = formatNum(appTel.errors ?? appTel.queryErrorsCount, "0");
   }
 
   if (d1StorageInfo && data.storage) {
-    d1StorageInfo.textContent = data.storage.storageUsed;
+    d1StorageInfo.textContent = getVal(data.storage.storageUsed, "Unavailable from Worker API");
   }
 
   // Render Tables
   if (d1TablesTableBody && data.tables) {
-    d1TablesTableBody.innerHTML = data.tables.map(t => `
-      <tr>
-        <td class="mono" style="font-weight: 700; color: var(--accent-blue);">${t.name}</td>
-        <td class="mono" style="font-weight: 700; color: var(--success);">${Number(t.rows).toLocaleString()} rows</td>
-        <td style="color: var(--text-muted); font-size: 0.82rem;">${t.role}</td>
-      </tr>
-    `).join("");
+    d1TablesTableBody.innerHTML = data.tables.map(t => {
+      const tableName = t.name || t.table;
+      const rowCount = formatNum(t.rows, "0");
+      const srcBadge = renderSourceBadge(t.source);
+
+      return `
+        <tr>
+          <td class="mono" style="font-weight: 700; color: var(--accent-blue);">${tableName}</td>
+          <td class="mono" style="font-weight: 700; color: var(--success);">${rowCount} rows</td>
+          <td style="color: var(--text-muted); font-size: 0.82rem;">${t.role} <span style="margin-left: 0.35rem;">${srcBadge}</span></td>
+        </tr>
+      `;
+    }).join("");
   }
 
   // Render Slow Queries Log
-  if (d1SlowQueriesTableBody && data.slowQueriesLog) {
-    if (data.slowQueriesLog.length === 0) {
-      d1SlowQueriesTableBody.innerHTML = `<tr><td colspan="4" class="empty-state">No slow queries recorded.</td></tr>`;
+  const slowLogs = data.slowQueriesLog || data.recentSlowQueries || [];
+  if (d1SlowQueriesTableBody) {
+    if (slowLogs.length === 0) {
+      d1SlowQueriesTableBody.innerHTML = `<tr><td colspan="4" class="empty-state">No slow queries recorded in current isolate.</td></tr>`;
     } else {
-      d1SlowQueriesTableBody.innerHTML = data.slowQueriesLog.map(q => {
+      d1SlowQueriesTableBody.innerHTML = slowLogs.map(q => {
         const timeStr = q.timestamp ? new Date(q.timestamp).toLocaleTimeString() : "--";
         const durColor = q.durationMs > 35 ? "var(--warning)" : "var(--text-main)";
         return `
@@ -940,18 +1076,24 @@ function renderKVMetrics(data) {
     kvStatusBadge.className = `status-badge ${data.status.toLowerCase()}`;
   }
 
-  if (kvTotalOps && data.operationVolume) {
-    kvTotalOps.textContent = Number(data.operationVolume.totalOperations).toLocaleString();
-    kvOpsBreakdown.textContent = `Reads: ${Number(data.operationVolume.reads).toLocaleString()} | Writes: ${Number(data.operationVolume.writes).toLocaleString()} | Deletes: ${Number(data.operationVolume.deletes).toLocaleString()}`;
-    kvAvgLatency.textContent = `${data.operationVolume.avgOperationLatencyMs} ms`;
+  const appKV = data.applicationTelemetry || data.operationVolume || {};
+  if (kvTotalOps) {
+    kvTotalOps.textContent = formatNum(appKV.totalOperations, "0");
+    const reads = formatNum(appKV.reads, "0");
+    const writes = formatNum(appKV.writes, "0");
+    const deletes = formatNum(appKV.deletes, "0");
+    kvOpsBreakdown.textContent = `Reads: ${reads} | Writes: ${writes} | Deletes: ${deletes} (Application Instrumented)`;
+    
+    const avg = getVal(appKV.avgOperationLatencyMs, getVal(data.probe?.probeLatencyMs, null));
+    kvAvgLatency.textContent = avg !== null ? `${avg} ms` : "N/A";
   }
 
-  if (kvActiveCarts && data.trends) {
-    kvActiveCarts.textContent = `~${data.trends.activeSessionCartsEstimate}`;
+  if (kvActiveCarts) {
+    kvActiveCarts.textContent = "Active (7-day TTL expiration)";
   }
 
   if (kvStorageInfo && data.storage) {
-    kvStorageInfo.textContent = data.storage.storageUsed;
+    kvStorageInfo.textContent = getVal(data.storage.storageUsed, "Unavailable from Worker API");
   }
 }
 
@@ -998,23 +1140,33 @@ function renderRealtimeMetrics(data) {
     doStatusBadge.className = `status-badge ${(data.status || 'healthy').toLowerCase()}`;
   }
 
-  if (doActiveConnections) doActiveConnections.textContent = data.activeConnections || 0;
-  if (doConnectionsMeta) doConnectionsMeta.textContent = `Opened: ${data.totalConnectionsOpened || 0} | Closed: ${data.totalConnectionsClosed || 0}`;
+  const appDO = data.applicationInstrumented || data;
+  const active = getVal(appDO.activeConnections, 0);
 
-  if (doMessagesSent) doMessagesSent.textContent = Number(data.totalMessagesSent || 0).toLocaleString();
-  if (doMessagesReceived) doMessagesReceived.textContent = `Received (Pings): ${Number(data.totalMessagesReceived || 0).toLocaleString()}`;
+  if (doActiveConnections) doActiveConnections.textContent = formatNum(active, "0");
+  if (doConnectionsMeta) {
+    const opened = formatNum(appDO.totalConnectionsOpened, "0");
+    const closed = formatNum(appDO.totalConnectionsClosed, "0");
+    doConnectionsMeta.textContent = `Opened: ${opened} | Closed: ${closed} (In-Isolate Actor)`;
+  }
 
-  if (doTotalPurchases) doTotalPurchases.textContent = Number(data.totalPurchases || 0).toLocaleString();
-  if (doPurchaseErrors) doPurchaseErrors.textContent = `${data.purchaseErrors || 0} purchase failure${data.purchaseErrors === 1 ? '' : 's'}`;
-  if (doAvgPurchaseLatency) doAvgPurchaseLatency.textContent = data.avgPurchaseLatencyMs > 0 ? `${data.avgPurchaseLatencyMs} ms` : "-- ms";
-  if (doConnectionErrors) doConnectionErrors.textContent = data.connectionErrors || 0;
+  if (doMessagesSent) doMessagesSent.textContent = formatNum(appDO.totalMessagesSent, "0");
+  if (doMessagesReceived) doMessagesReceived.textContent = `Received (Pings): ${formatNum(appDO.totalMessagesReceived, "0")}`;
+
+  if (doTotalPurchases) doTotalPurchases.textContent = formatNum(appDO.totalPurchases, "0");
+  const pErrors = getVal(appDO.purchaseErrors, 0);
+  if (doPurchaseErrors) doPurchaseErrors.textContent = `${pErrors} purchase failure${pErrors === 1 ? '' : 's'}`;
+  
+  const avgPur = getVal(appDO.avgPurchaseLatencyMs, null);
+  if (doAvgPurchaseLatency) doAvgPurchaseLatency.textContent = avgPur !== null ? `${avgPur} ms` : "N/A";
+  if (doConnectionErrors) doConnectionErrors.textContent = formatNum(appDO.connectionErrors, "0");
 
   // Application Instrumented Table
-  if (appActiveWs) appActiveWs.textContent = data.activeConnections || 0;
-  if (appOpenedWs) appOpenedWs.textContent = data.totalConnectionsOpened || 0;
-  if (appClosedWs) appClosedWs.textContent = data.totalConnectionsClosed || 0;
-  if (appBroadcasts) appBroadcasts.textContent = data.totalMessagesSent || 0;
-  if (appPurchases) appPurchases.textContent = data.totalPurchases || 0;
+  if (appActiveWs) appActiveWs.textContent = formatNum(active, "0");
+  if (appOpenedWs) appOpenedWs.textContent = formatNum(appDO.totalConnectionsOpened, "0");
+  if (appClosedWs) appClosedWs.textContent = formatNum(appDO.totalConnectionsClosed, "0");
+  if (appBroadcasts) appBroadcasts.textContent = formatNum(appDO.totalMessagesSent, "0");
+  if (appPurchases) appPurchases.textContent = formatNum(appDO.totalPurchases, "0");
 }
 
 // -------------------------------------------------------------
@@ -1298,6 +1450,7 @@ window.switchTab = function(tabName) {
   else if (tabName === "realtime") loadRealtimeMetrics();
   else if (tabName === "logs") loadLogs();
   else if (tabName === "traces") loadTraces();
+  else if (tabName === "deployments") loadDeployments();
 };
 
 // -------------------------------------------------------------
@@ -1469,7 +1622,8 @@ function renderWaterfall(trace) {
   if (wfTraceId) wfTraceId.textContent = trace.traceId;
 
   if (wfMetaDetails) {
-    wfMetaDetails.textContent = `Cloudflare Colo: ${trace.colo} | Total Duration: ${trace.totalDurationMs} ms | ${trace.spans.length} hop-by-hop execution spans`;
+    const srcNote = trace.source ? ` [Source: ${trace.source}]` : '';
+    wfMetaDetails.textContent = `Cloudflare Colo: ${trace.colo} | Total Duration: ${trace.totalDurationMs} ms | ${trace.spans ? trace.spans.length : 0} spans${srcNote}`;
   }
 
   // Update timeline ruler
@@ -1480,18 +1634,23 @@ function renderWaterfall(trace) {
   if (wfRuler100) wfRuler100.textContent = `${total.toFixed(1)} ms`;
 
   // Render spans
-  if (waterfallSpansList) {
+  if (waterfallSpansList && trace.spans) {
     waterfallSpansList.innerHTML = trace.spans.map((span, index) => {
       let svcClass = "svc-worker";
-      const sLower = span.service.toLowerCase();
+      const sLower = (span.service || "").toLowerCase();
       if (sLower.includes("pages")) svcClass = "svc-pages";
       else if (sLower.includes("d1")) svcClass = "svc-d1";
       else if (sLower.includes("do") || sLower.includes("inventorydo")) svcClass = "svc-do";
       else if (sLower.includes("kv")) svcClass = "svc-kv";
 
+      const isUnavailable = span.durationMs === null || span.durationMs === undefined;
       const isError = span.status === "ERROR";
-      const offsetPercent = Math.min(95, Math.max(0, (span.startOffsetMs / total) * 100));
-      const widthPercent = Math.min(100 - offsetPercent, Math.max(2.5, (span.durationMs / total) * 100));
+      const offsetPercent = (!isUnavailable && span.startOffsetMs !== null) ? Math.min(95, Math.max(0, (span.startOffsetMs / total) * 100)) : 0;
+      const widthPercent = !isUnavailable ? Math.min(100 - offsetPercent, Math.max(2.5, (span.durationMs / total) * 100)) : 100;
+      const timingLabel = !isUnavailable ? `${span.durationMs} ms` : "Timing: N/A (Unavailable)";
+      const barStyle = isUnavailable
+        ? `left: 0%; width: 100%; border: 1px dashed rgba(255,255,255,0.25); background: rgba(255,255,255,0.03);`
+        : `left: ${offsetPercent.toFixed(1)}%; width: ${widthPercent.toFixed(1)}%;`;
 
       return `
         <div class="waterfall-span-row ${index === 0 ? 'selected' : ''}" data-span-idx="${index}">
@@ -1501,8 +1660,8 @@ function renderWaterfall(trace) {
           </div>
 
           <div class="span-track-col">
-            <div class="span-bar ${svcClass} ${isError ? 'error' : ''}" style="left: ${offsetPercent.toFixed(1)}%; width: ${widthPercent.toFixed(1)}%;">
-              <span class="span-timing-label">${span.durationMs} ms</span>
+            <div class="span-bar ${svcClass} ${isError ? 'error' : ''}" style="${barStyle}">
+              <span class="span-timing-label">${timingLabel}</span>
             </div>
           </div>
         </div>
@@ -1530,7 +1689,7 @@ function showSpanDetail(span, totalDurationMs) {
   if (!span) return;
 
   let svcClass = "svc-worker";
-  const sLower = span.service.toLowerCase();
+  const sLower = (span.service || "").toLowerCase();
   if (sLower.includes("pages")) svcClass = "svc-pages";
   else if (sLower.includes("d1")) svcClass = "svc-d1";
   else if (sLower.includes("do") || sLower.includes("inventorydo")) svcClass = "svc-do";
@@ -1541,9 +1700,12 @@ function showSpanDetail(span, totalDurationMs) {
     wfDetailSvcTag.className = `service-tag ${svcClass}`;
   }
 
-  const pct = totalDurationMs > 0 ? ((span.durationMs / totalDurationMs) * 100).toFixed(1) : "0";
+  const isUnavailable = span.durationMs === null || span.durationMs === undefined;
+  const pct = (!isUnavailable && totalDurationMs > 0) ? ((span.durationMs / totalDurationMs) * 100).toFixed(1) : "N/A";
   if (wfDetailSpanName) {
-    wfDetailSpanName.textContent = `${span.name} — ${span.durationMs} ms (${pct}% of roundtrip)`;
+    wfDetailSpanName.textContent = isUnavailable
+      ? `${span.name} — Timing: Unavailable from Worker`
+      : `${span.name} — ${span.durationMs} ms (${pct}% of roundtrip)`;
   }
 
   if (wfDetailJson) {
@@ -1551,10 +1713,11 @@ function showSpanDetail(span, totalDurationMs) {
       spanId: span.id,
       name: span.name,
       service: span.service,
-      startOffsetMs: `${span.startOffsetMs} ms`,
-      durationMs: `${span.durationMs} ms`,
-      relativeShare: `${pct}%`,
+      startOffsetMs: span.startOffsetMs !== null ? `${span.startOffsetMs} ms` : "N/A",
+      durationMs: span.durationMs !== null ? `${span.durationMs} ms` : "N/A",
+      relativeShare: pct !== "N/A" ? `${pct}%` : "N/A",
       status: span.status,
+      source: span.source || "UNAVAILABLE",
       executionMetadata: span.details || {}
     }, null, 2);
   }
@@ -1595,6 +1758,171 @@ if (traceResetFiltersBtn) {
   });
 }
 
+// -------------------------------------------------------------
+// CI/CD Deployments & Business Correlation (Phase 7)
+// -------------------------------------------------------------
+
+const deployActiveRelease = document.getElementById("deployActiveRelease");
+const deployActiveCommit = document.getElementById("deployActiveCommit");
+const deployPipelineStatus = document.getElementById("deployPipelineStatus");
+const deployStageCount = document.getElementById("deployStageCount");
+const deployAvgDuration = document.getElementById("deployAvgDuration");
+const deployUptime = document.getElementById("deployUptime");
+
+const deployConvStatus = document.getElementById("deployConvStatus");
+const deployConvRate = document.getElementById("deployConvRate");
+const deployConvSub = document.getElementById("deployConvSub");
+
+const deployRevenueTotal = document.getElementById("deployRevenueTotal");
+const deployRevenueSub = document.getElementById("deployRevenueSub");
+
+const deployRatingStatus = document.getElementById("deployRatingStatus");
+const deployRatingVal = document.getElementById("deployRatingVal");
+const deployRatingSub = document.getElementById("deployRatingSub");
+
+const pipelineStepsList = document.getElementById("pipelineStepsList");
+const deployHistoryTableBody = document.getElementById("deployHistoryTableBody");
+const refreshDeploymentsBtn = document.getElementById("refreshDeploymentsBtn");
+
+async function loadDeployments() {
+  try {
+    const res = await fetch(`${API_BASE}/deployments`);
+    if (!res.ok) return;
+    const json = await res.json();
+    if (json.success && json.data) {
+      renderDeployments(json.data);
+    }
+  } catch (err) {
+    console.error("Failed to load deployment metrics:", err);
+  }
+}
+
+function renderDeployments(data) {
+  // 1. Release Info
+  const rel = data.currentRelease;
+  if (rel) {
+    const isUnavailable = !rel.version;
+    if (deployActiveRelease) {
+      deployActiveRelease.textContent = rel.version || "Unavailable";
+      if (isUnavailable) deployActiveRelease.style.color = "var(--text-muted)";
+      else deployActiveRelease.style.color = "inherit";
+    }
+    if (deployActiveCommit) {
+      if (rel.commitSha) {
+        deployActiveCommit.textContent = `Commit: ${rel.commitSha} (${rel.branch || 'main'})`;
+      } else {
+        deployActiveCommit.textContent = data.reason || "CI/CD deployment metadata requires GitHub Actions integration.";
+      }
+    }
+    if (deployUptime) {
+      deployUptime.textContent = rel.uptimeHours ? `${rel.uptimeHours} hrs` : "N/A";
+    }
+  }
+
+  // 2. Pipeline Summary
+  const pipe = data.pipeline;
+  if (pipe) {
+    const isPipeAvail = pipe.stages && pipe.stages.length > 0;
+    if (deployPipelineStatus) {
+      deployPipelineStatus.textContent = isPipeAvail ? (pipe.status || "SUCCESS") : "UNAVAILABLE";
+      deployPipelineStatus.className = `metric-value ${isPipeAvail ? 'text-success' : 'text-muted'}`;
+    }
+    if (deployStageCount) {
+      deployStageCount.textContent = isPipeAvail ? `${pipe.stages.length} stages passed` : "CI/CD pipeline integration unavailable";
+    }
+    if (deployAvgDuration) {
+      deployAvgDuration.textContent = isPipeAvail && pipe.totalDurationSeconds ? `${pipe.totalDurationSeconds}s` : "N/A";
+    }
+
+    // Render Pipeline Steps Grid
+    if (pipelineStepsList) {
+      if (!isPipeAvail) {
+        pipelineStepsList.innerHTML = `
+          <div style="grid-column: 1 / -1; padding: 2rem; text-align: center; color: var(--text-muted); background: var(--bg-card); border-radius: 8px; border: 1px dashed var(--border-color);">
+            CI/CD deployment pipeline information unavailable. To enable, configure <code>GITHUB_TOKEN</code> and <code>GITHUB_REPOSITORY</code> secrets or deploy via GitHub Actions.
+          </div>
+        `;
+      } else {
+        pipelineStepsList.innerHTML = pipe.stages.map(stage => {
+          return `
+            <div class="pipeline-step-card">
+              <div class="step-header">
+                <span class="step-num-badge">${stage.step}</span>
+                <span class="status-badge healthy" style="font-size: 0.68rem; padding: 0.1rem 0.35rem;">${stage.status}</span>
+              </div>
+              <div class="step-title">${stage.name}</div>
+              <div class="step-desc">${stage.description || ''}</div>
+              <div class="step-footer">
+                <span style="color: var(--text-muted);">${stage.durationSeconds}s duration</span>
+                <span style="color: var(--accent-blue);">${renderSourceBadge(stage.source)}</span>
+              </div>
+            </div>
+          `;
+        }).join("");
+      }
+    }
+  }
+
+  // 3. Business Correlation Analytics
+  const biz = data.businessCorrelation;
+  if (biz) {
+    if (biz.checkoutConversion) {
+      const orders = getVal(biz.checkoutConversion.totalOrdersRecorded, null);
+      if (deployConvRate) {
+        deployConvRate.textContent = orders !== null ? `${orders} orders` : "N/A";
+      }
+      if (deployConvSub) {
+        deployConvSub.textContent = "Orders recorded in D1 database (Calculated)";
+      }
+      if (deployConvStatus) {
+        deployConvStatus.textContent = orders > 0 ? "Active Orders" : "No Orders Yet";
+      }
+    }
+
+    if (biz.revenueVelocity) {
+      if (deployRevenueTotal) {
+        deployRevenueTotal.textContent = getVal(biz.revenueVelocity.formattedRevenue, "$0.00");
+      }
+      if (deployRevenueSub) {
+        deployRevenueSub.textContent = "Calculated from D1 orders table revenue";
+      }
+    }
+
+    if (biz.customerSatisfaction) {
+      if (deployRatingVal) deployRatingVal.textContent = `${getVal(biz.customerSatisfaction.avgRating, 5.0)} ★★★★★`;
+      if (deployRatingSub) deployRatingSub.textContent = "Customer review ratings from D1";
+      if (deployRatingStatus) deployRatingStatus.textContent = "D1 Feedback";
+    }
+  }
+
+  // 4. Deployment History Table
+  if (deployHistoryTableBody) {
+    if (!data.history || data.history.length === 0) {
+      deployHistoryTableBody.innerHTML = `<tr><td colspan="8" class="empty-state">No historical deployments recorded from CI/CD provider.</td></tr>`;
+    } else {
+      deployHistoryTableBody.innerHTML = data.history.map(h => {
+        const timeStr = h.deployedAt ? new Date(h.deployedAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : "--";
+        return `
+          <tr>
+            <td><span style="font-weight: 700; color: var(--accent-blue);">${h.version}</span></td>
+            <td><span class="commit-pill">${h.commitSha}</span></td>
+            <td style="font-size: 0.85rem; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${h.commitMessage || 'Release'}</td>
+            <td class="mono" style="font-size: 0.78rem; color: var(--text-muted);">${h.branch || 'main'}</td>
+            <td><span style="background: rgba(255,255,255,0.06); padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.72rem; font-family: var(--font-mono);">${h.trigger || 'push'}</span></td>
+            <td class="mono" style="font-size: 0.8rem; font-weight: 600;">${h.durationSeconds || '--'}s</td>
+            <td style="font-size: 0.78rem; color: var(--text-muted);">${timeStr}</td>
+            <td style="text-align: center;"><span class="status-badge healthy" style="font-size: 0.7rem; padding: 0.15rem 0.45rem;">${h.status}</span></td>
+          </tr>
+        `;
+      }).join("");
+    }
+  }
+}
+
+if (refreshDeploymentsBtn) {
+  refreshDeploymentsBtn.addEventListener("click", loadDeployments);
+}
+
 // Initial boot loader
 initMonitoring().then(() => {
   loadPerformanceMetrics();
@@ -1602,7 +1930,9 @@ initMonitoring().then(() => {
   loadRealtimeMetrics();
   loadLogs();
   loadTraces();
+  loadDeployments();
 });
+
 
 
 

@@ -655,6 +655,22 @@ tr:hover {
   }
 }
 
+@media (max-width: 768px) {
+  .waterfall-span-row {
+    grid-template-columns: 1fr;
+    gap: 0.4rem;
+  }
+  .drawer-meta-grid {
+    grid-template-columns: 1fr;
+  }
+  .pipeline-steps-grid {
+    grid-template-columns: 1fr;
+  }
+  .correlation-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* =========================================================
    Logs & Error Center (Phase 5) Styles
    ========================================================= */
@@ -1020,4 +1036,187 @@ tr:hover {
   font-size: 0.82rem;
 }
 
+/* =========================================================
+   CI/CD Deployments & Business Correlation (Phase 7)
+   ========================================================= */
 
+.pipeline-steps-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin: 1.25rem 0;
+}
+
+.pipeline-step-card {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+.pipeline-step-card:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--accent-blue);
+}
+
+.step-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.step-num-badge {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent-blue);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.step-title {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.step-desc {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+  flex: 1;
+}
+
+.step-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.72rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border-light);
+  font-family: var(--font-mono);
+}
+
+.correlation-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1.25rem;
+  margin-bottom: 2rem;
+}
+
+.correlation-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  border-left: 4px solid var(--accent-blue);
+}
+
+.correlation-card.emerald { border-left-color: var(--success); }
+.correlation-card.purple { border-left-color: var(--accent-purple); }
+.correlation-card.cyan { border-left-color: var(--accent-cyan); }
+
+.correlation-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.correlation-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.correlation-value {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--text-main);
+}
+
+.correlation-insight {
+  font-size: 0.8rem;
+  color: #bfdbfe;
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  line-height: 1.4;
+}
+
+.commit-pill {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--accent-blue);
+  background: rgba(59, 130, 246, 0.12);
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  font-weight: 700;
+}
+
+/* Metric Source Badges */
+.source-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 9999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  line-height: 1;
+}
+
+.source-badge.cloudflare-native,
+.source-badge.source-cloudflare-native,
+.source-badge.source-cloudflare_native {
+  background: rgba(246, 130, 31, 0.15);
+  color: #f6821f;
+  border: 1px solid rgba(246, 130, 31, 0.35);
+}
+
+.source-badge.app-instrumented,
+.source-badge.source-application-instrumented,
+.source-badge.source-application_instrumented,
+.source-badge.source-application_probe {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+}
+
+.source-badge.calculated,
+.source-badge.source-calculated {
+  background: rgba(139, 92, 246, 0.15);
+  color: #a78bfa;
+  border: 1px solid rgba(139, 92, 246, 0.35);
+}
+
+.source-badge.unavailable,
+.source-badge.source-unavailable {
+  background: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+.source-badge.demo,
+.source-badge.source-demo {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.45);
+}

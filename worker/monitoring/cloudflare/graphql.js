@@ -1,4 +1,5 @@
 // CloudCart Monitoring - Cloudflare GraphQL Analytics API Client
+import { validateCredentials } from "./schema.js";
 
 const GRAPHQL_ENDPOINT = "https://api.cloudflare.com/client/v4/graphql";
 
@@ -7,14 +8,12 @@ const GRAPHQL_ENDPOINT = "https://api.cloudflare.com/client/v4/graphql";
  * Safely handles authorization, timeouts, and API error formatting.
  */
 export async function executeGraphQL(env, query, variables = {}) {
-  const accountId = env.CLOUDFLARE_ACCOUNT_ID;
-  const apiToken = env.CLOUDFLARE_API_TOKEN;
-
-  if (!accountId || !apiToken || accountId.startsWith("00000000") || apiToken === "dry-run-token") {
+  const credCheck = validateCredentials(env);
+  if (!credCheck.isValid) {
     return {
       ok: false,
       isConfigured: false,
-      error: "Cloudflare credentials (CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN) not configured in environment.",
+      error: credCheck.reason,
       data: null
     };
   }
@@ -27,7 +26,7 @@ export async function executeGraphQL(env, query, variables = {}) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiToken}`,
+        "Authorization": `Bearer ${credCheck.apiToken}`,
       },
       body: JSON.stringify({ query, variables }),
       signal: controller.signal

@@ -1,14 +1,15 @@
 // CloudCart Monitoring - D1 Database & KV Telemetry Provider
+import { METRIC_SOURCES, isDemoMode, formatMetric } from "./sources.js";
 
-// In-memory query tracking for D1 & KV
+// In-memory query tracking for D1 & KV — starts strictly at 0 in production!
 const d1QueryLog = [];
-let totalD1Reads = 1450;
-let totalD1Writes = 185;
-let totalD1Errors = 2;
+let totalD1Reads = 0;
+let totalD1Writes = 0;
+let totalD1Errors = 0;
 
-let totalKVReads = 890;
-let totalKVWrites = 320;
-let totalKVDeletes = 45;
+let totalKVReads = 0;
+let totalKVWrites = 0;
+let totalKVDeletes = 0;
 let totalKVErrors = 0;
 
 /**
@@ -20,12 +21,13 @@ export function recordD1Query(query, durationMs, isWrite = false, error = null) 
   if (error) totalD1Errors++;
 
   d1QueryLog.unshift({
-    query: query.substring(0, 150),
+    query: String(query).substring(0, 150),
     durationMs: Math.round(durationMs),
     type: isWrite ? "WRITE" : "READ",
     error: error ? String(error) : null,
     isSlow: durationMs > 35,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    source: METRIC_SOURCES.APPLICATION_INSTRUMENTED
   });
 
   if (d1QueryLog.length > 50) d1QueryLog.pop();
@@ -42,31 +44,20 @@ export function recordKVOperation(operation, durationMs, error = null) {
 }
 
 /**
- * Seed baseline slow queries for realistic investigation
- */
-if (d1QueryLog.length === 0) {
-  d1QueryLog.push(
-    { query: "SELECT * FROM products WHERE is_active = 1 AND category = 'laptops'", durationMs: 14, type: "READ", isSlow: false, timestamp: new Date(Date.now() - 60000).toISOString() },
-    { query: "UPDATE products SET stock = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", durationMs: 42, type: "WRITE", isSlow: true, timestamp: new Date(Date.now() - 180000).toISOString() },
-    { query: "INSERT INTO orders (id, customer_name, items_summary, total_amount, items_count) VALUES (?, ?, ?, ?, ?)", durationMs: 28, type: "WRITE", isSlow: false, timestamp: new Date(Date.now() - 240000).toISOString() },
-    { query: "SELECT * FROM feedback ORDER BY created_at DESC LIMIT 50", durationMs: 18, type: "READ", isSlow: false, timestamp: new Date(Date.now() - 400000).toISOString() }
-  );
-}
-
-/**
  * Retrieve comprehensive D1 Database Telemetry
  */
 export async function getD1Metrics(env) {
+  const demo = isDemoMode(env);
   const probeStart = performance.now();
   let probeOk = false;
-  let probeLatency = 0;
+  let probeLatency = null;
   let probeError = null;
 
   let productsCount = 0;
   let ordersCount = 0;
   let feedbackCount = 0;
 
-  if (env.DB) {
+  if (env && env.DB) {
     try {
       const probe = await env.DB.prepare("SELECT 1 as ping").first();
       probeLatency = Math.round(performance.now() - probeStart);
@@ -77,13 +68,15 @@ export async function getD1Metrics(env) {
       const o = await env.DB.prepare("SELECT COUNT(*) as count FROM orders").first();
       const f = await env.DB.prepare("SELECT COUNT(*) as count FROM feedback").first();
 
-      productsCount = p?.count || 0;
-      ordersCount = o?.count || 0;
-      feedbackCount = f?.count || 0;
+      productsCount = p?.count ?? 0;
+      ordersCount = o?.count ?? 0;
+      feedbackCount = f?.count ?? 0;
     } catch (err) {
       probeError = err.message;
       probeLatency = Math.round(performance.now() - probeStart);
     }
+  } else {
+    probeError = "D1 database binding 'DB' not configured";
   }
 
   const slowQueries = d1QueryLog.filter(q => q.isSlow);
@@ -98,52 +91,74 @@ export async function getD1Metrics(env) {
     databaseName: "cloudcart-db",
     binding: "DB",
     engine: "Cloudflare D1 (Serverless SQLite)",
-    status: probeOk ? (avgQueryLatency > 40 ? "DEGRADED" : "HEALTHY") : "DOWN",
-    probeLatencyMs: probeLatency,
-    probeError,
-    queryActivity: {
-      totalQueries,
-      readsCount: totalD1Reads,
-      writesCount: totalD1Writes,
-      readWriteRatio: totalD1Writes > 0 ? Number((totalD1Reads / totalD1Writes).toFixed(1)) : totalD1Reads,
-      avgQueryLatencyMs: avgQueryLatency,
-      p95QueryLatencyMs: Math.round(avgQueryLatency * 2.1),
-      slowQueriesCount: slowQueries.length,
-      queryErrorsCount: totalD1Errors
+    source: demo ? METRIC_SOURCES.DEMO : METRIC_SOURCES.APPLICATION_INSTRUMENTED,
+    status: probeOk ? "HEALTHY" : "DOWN",
+    probe: {
+      probeOk: formatMetric(probeOk, METRIC_SOURCES.APPLICATION_INSTRUMENTED),
+      probeLatencyMs: probeLatency !== null
+        ? formatMetric(probeLatency, METRIC_SOURCES.APPLICATION_INSTRUMENTED, { unit: "ms" })
+        : formatMetric(null, METRIC_SOURCES.UNAVAILABLE, { reason: probeError || "Probe did not complete" }),
+      probeQuery: "SELECT 1 as ping",
+      error: probeError
+    },
+    applicationTelemetry: {
+      label: "CloudCart Application D1 Instrumentation",
+      note: "Measured in-isolate by CloudCart runtime code; resets on Worker isolate eviction.",
+      totalQueries: formatMetric(totalQueries, METRIC_SOURCES.APPLICATION_INSTRUMENTED),
+      reads: formatMetric(totalD1Reads, METRIC_SOURCES.APPLICATION_INSTRUMENTED),
+      writes: formatMetric(totalD1Writes, METRIC_SOURCES.APPLICATION_INSTRUMENTED),
+      errors: formatMetric(totalD1Errors, METRIC_SOURCES.APPLICATION_INSTRUMENTED),
+      avgQueryLatencyMs: avgQueryLatency !== null
+        ? formatMetric(avgQueryLatency, METRIC_SOURCES.CALCULATED, { calculation: "mean of measured in-isolate D1 query times", unit: "ms" })
+        : formatMetric(null, METRIC_SOURCES.UNAVAILABLE, { reason: "No query samples recorded" })
     },
     tables: [
-      { name: "products", rows: productsCount, role: "Catalog products, prices, stock & categories" },
-      { name: "orders", rows: ordersCount, role: "Customer orders, items summary, totals" },
-      { name: "feedback", rows: feedbackCount, role: "Customer ratings & feedback comments" }
+      {
+        table: "products",
+        role: "Product Catalog (Active SKUs)",
+        rows: formatMetric(productsCount, METRIC_SOURCES.APPLICATION_INSTRUMENTED),
+        indexes: ["idx_products_category", "idx_products_active"],
+        source: METRIC_SOURCES.APPLICATION_INSTRUMENTED
+      },
+      {
+        table: "orders",
+        role: "Completed Customer Orders & Transactions",
+        rows: formatMetric(ordersCount, METRIC_SOURCES.APPLICATION_INSTRUMENTED),
+        indexes: ["PRIMARY KEY (id)", "idx_orders_created"],
+        source: METRIC_SOURCES.APPLICATION_INSTRUMENTED
+      },
+      {
+        table: "feedback",
+        role: "Customer Reviews & Star Ratings",
+        rows: formatMetric(feedbackCount, METRIC_SOURCES.APPLICATION_INSTRUMENTED),
+        indexes: ["PRIMARY KEY (id)", "idx_feedback_created"],
+        source: METRIC_SOURCES.APPLICATION_INSTRUMENTED
+      }
     ],
     storage: {
-      storageUsed: "Not available from current Cloudflare API",
-      maxStorageSize: "10 GB (Cloudflare D1 Default Limit)",
-      databaseVersion: "SQLite 3.x (Cloudflare D1 Beta/GA)"
+      storageUsed: formatMetric(null, METRIC_SOURCES.UNAVAILABLE, { reason: "D1 storage metrics are not exposed by the Worker runtime binding." }),
+      engineArchitecture: "SQLite via Cloudflare Serverless D1",
+      replication: "Automated read replication & edge distribution"
     },
-    slowQueriesLog: d1QueryLog.slice(0, 15),
-    latencyContribution: {
-      status: avgQueryLatency < 25 ? "HEALTHY" : "ELEVATED",
-      percentageOfAppLatency: "~14%",
-      summary: avgQueryLatency < 25
-        ? "D1 query performance is healthy and contributing minimally (< 15%) to overall application latency."
-        : "D1 queries are experiencing elevated latency. Check slow queries log for unindexed filters."
-    }
+    slowQueriesCount: slowQueries.length,
+    recentSlowQueries: slowQueries.slice(0, 10),
+    recentQueries: d1QueryLog.slice(0, 20)
   };
 }
 
 /**
- * Retrieve comprehensive KV Namespace Telemetry
+ * Retrieve comprehensive Cloudflare KV Telemetry
  */
 export async function getKVMetrics(env) {
+  const demo = isDemoMode(env);
   const probeStart = performance.now();
   let probeOk = false;
-  let probeLatency = 0;
+  let probeLatency = null;
   let probeError = null;
 
-  if (env.CLOUDCART_KV) {
+  if (env && env.CLOUDCART_KV) {
     try {
-      const probeKey = "__health_kv_test__";
+      const probeKey = "__monitoring_kv_probe__";
       await env.CLOUDCART_KV.put(probeKey, "ok", { expirationTtl: 60 });
       const res = await env.CLOUDCART_KV.get(probeKey);
       await env.CLOUDCART_KV.delete(probeKey);
@@ -153,6 +168,8 @@ export async function getKVMetrics(env) {
       probeError = err.message;
       probeLatency = Math.round(performance.now() - probeStart);
     }
+  } else {
+    probeError = "KV binding 'CLOUDCART_KV' not configured";
   }
 
   const totalOps = totalKVReads + totalKVWrites + totalKVDeletes;
@@ -162,25 +179,38 @@ export async function getKVMetrics(env) {
     binding: "CLOUDCART_KV",
     role: "Persistent multi-device shopping cart sessions",
     keyPattern: "cart:<sessionId> (7-day expiration TTL)",
+    source: demo ? METRIC_SOURCES.DEMO : METRIC_SOURCES.APPLICATION_INSTRUMENTED,
     status: probeOk ? "HEALTHY" : "DOWN",
-    probeLatencyMs: probeLatency,
-    probeError,
-    operationVolume: {
-      totalOperations: totalOps,
-      reads: totalKVReads,
-      writes: totalKVWrites,
-      deletes: totalKVDeletes,
-      errors: totalKVErrors,
-      avgOperationLatencyMs: probeLatency > 0 ? probeLatency : 14
+    probe: {
+      probeOk: formatMetric(probeOk, METRIC_SOURCES.APPLICATION_INSTRUMENTED),
+      probeLatencyMs: probeLatency !== null
+        ? formatMetric(probeLatency, METRIC_SOURCES.APPLICATION_INSTRUMENTED, { unit: "ms" })
+        : formatMetric(null, METRIC_SOURCES.UNAVAILABLE, { reason: probeError || "Probe did not complete" }),
+      probeKey: "__monitoring_kv_probe__",
+      error: probeError
+    },
+    applicationTelemetry: {
+      label: "CloudCart Application KV Instrumentation",
+      note: "Measured in-isolate by CloudCart runtime code; resets on Worker isolate eviction.",
+      totalOperations: formatMetric(totalOps, METRIC_SOURCES.APPLICATION_INSTRUMENTED),
+      reads: formatMetric(totalKVReads, METRIC_SOURCES.APPLICATION_INSTRUMENTED),
+      writes: formatMetric(totalKVWrites, METRIC_SOURCES.APPLICATION_INSTRUMENTED),
+      deletes: formatMetric(totalKVDeletes, METRIC_SOURCES.APPLICATION_INSTRUMENTED),
+      errors: formatMetric(totalKVErrors, METRIC_SOURCES.APPLICATION_INSTRUMENTED),
+      avgOperationLatencyMs: probeLatency !== null
+        ? formatMetric(probeLatency, METRIC_SOURCES.APPLICATION_INSTRUMENTED, { unit: "ms" })
+        : formatMetric(null, METRIC_SOURCES.UNAVAILABLE, { reason: "Probe not completed" })
     },
     storage: {
-      storageUsed: "Not available from current Cloudflare API",
+      storageUsed: formatMetric(null, METRIC_SOURCES.UNAVAILABLE, { reason: "KV storage metrics require Cloudflare Account GraphQL or REST API." }),
       maxKeySize: "512 Bytes (Key) / 25 MB (Value Limit)",
       consistencyModel: "Eventual consistency (Global edge caching)"
     },
     trends: {
-      readWriteRatio: totalKVWrites > 0 ? Number((totalKVReads / totalKVWrites).toFixed(1)) : 1.0,
-      activeSessionCartsEstimate: Math.max(12, Math.round(totalKVWrites * 0.15))
+      readWriteRatio: totalKVWrites > 0
+        ? formatMetric(Number((totalKVReads / totalKVWrites).toFixed(1)), METRIC_SOURCES.CALCULATED, { calculation: "reads / writes" })
+        : formatMetric(null, METRIC_SOURCES.UNAVAILABLE, { reason: "No KV writes recorded" }),
+      activeSessionCartsNote: "Session carts are maintained with 7-day TTL expiration."
     }
   };
 }
@@ -189,11 +219,12 @@ export async function getKVMetrics(env) {
  * Retrieve Durable Object (InventoryDO) & WebSocket Telemetry
  */
 export async function getDOMetrics(env) {
-  if (!env.INVENTORY_DO) {
+  if (!env || !env.INVENTORY_DO) {
     return {
       className: "InventoryDO",
       role: "Real-time inventory synchronization and atomic inventory coordination.",
       status: "DOWN",
+      source: METRIC_SOURCES.UNAVAILABLE,
       error: "INVENTORY_DO binding not configured"
     };
   }
@@ -206,25 +237,31 @@ export async function getDOMetrics(env) {
     if (res.ok) {
       const data = await res.json();
       return {
-        ...data,
+        className: "InventoryDO",
+        role: "Real-time inventory synchronization and atomic inventory coordination.",
         status: "HEALTHY",
+        source: METRIC_SOURCES.APPLICATION_INSTRUMENTED,
         cloudflareProvided: {
           runtime: "Cloudflare Durable Objects",
           architecture: "Single-threaded globally unique actor",
           location: "Colocated nearest to primary user / edge storage",
           cpuTimeLimit: "30s max wall time per request",
-          memoryMetrics: "Not available from current Cloudflare API"
+          memoryMetrics: formatMetric(null, METRIC_SOURCES.UNAVAILABLE, { reason: "Durable Object memory utilization is not exposed to the runtime API." })
         },
         applicationInstrumented: {
-          activeConnections: data.activeConnections,
-          totalConnectionsOpened: data.totalConnectionsOpened,
-          totalConnectionsClosed: data.totalConnectionsClosed,
-          totalMessagesSent: data.totalMessagesSent,
-          totalMessagesReceived: data.totalMessagesReceived,
-          connectionErrors: data.connectionErrors,
-          totalPurchases: data.totalPurchases,
-          purchaseErrors: data.purchaseErrors,
-          avgPurchaseLatencyMs: data.avgPurchaseLatencyMs
+          label: "CloudCart Application Durable Object Instrumentation",
+          note: "In-memory runtime counters for this Durable Object instance (global actor). Resets on DO isolate eviction. Not Cloudflare historical platform analytics.",
+          activeConnections: formatMetric(data.activeConnections ?? 0, METRIC_SOURCES.APPLICATION_INSTRUMENTED),
+          totalConnectionsOpened: formatMetric(data.totalConnectionsOpened ?? 0, METRIC_SOURCES.APPLICATION_INSTRUMENTED),
+          totalConnectionsClosed: formatMetric(data.totalConnectionsClosed ?? 0, METRIC_SOURCES.APPLICATION_INSTRUMENTED),
+          totalMessagesSent: formatMetric(data.totalMessagesSent ?? 0, METRIC_SOURCES.APPLICATION_INSTRUMENTED),
+          totalMessagesReceived: formatMetric(data.totalMessagesReceived ?? 0, METRIC_SOURCES.APPLICATION_INSTRUMENTED),
+          connectionErrors: formatMetric(data.connectionErrors ?? 0, METRIC_SOURCES.APPLICATION_INSTRUMENTED),
+          totalPurchases: formatMetric(data.totalPurchases ?? 0, METRIC_SOURCES.APPLICATION_INSTRUMENTED),
+          purchaseErrors: formatMetric(data.purchaseErrors ?? 0, METRIC_SOURCES.APPLICATION_INSTRUMENTED),
+          avgPurchaseLatencyMs: data.avgPurchaseLatencyMs !== undefined && data.avgPurchaseLatencyMs !== null
+            ? formatMetric(data.avgPurchaseLatencyMs, METRIC_SOURCES.APPLICATION_INSTRUMENTED, { unit: "ms" })
+            : formatMetric(null, METRIC_SOURCES.UNAVAILABLE, { reason: "No purchases executed in this DO instance" })
         }
       };
     } else {
@@ -232,6 +269,7 @@ export async function getDOMetrics(env) {
         className: "InventoryDO",
         role: "Real-time inventory synchronization and atomic inventory coordination.",
         status: "DEGRADED",
+        source: METRIC_SOURCES.APPLICATION_INSTRUMENTED,
         error: `DO responded with HTTP ${res.status}`
       };
     }
@@ -240,6 +278,7 @@ export async function getDOMetrics(env) {
       className: "InventoryDO",
       role: "Real-time inventory synchronization and atomic inventory coordination.",
       status: "DOWN",
+      source: METRIC_SOURCES.APPLICATION_INSTRUMENTED,
       error: err.message
     };
   }
