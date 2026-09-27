@@ -81,20 +81,21 @@ This repository includes a fully automated provisioning script (`scripts/setup.j
 
 CloudCart includes a production-grade, Cloudflare-native edge monitoring and observability platform directly accessible from the Admin Portal.
 
-### Key Capabilities
-- **System Health & Subsystem Probes**: Active probes across all 7 architectural tiers (Pages, Worker, D1 SQLite `SELECT 1`, KV read/write/delete, `InventoryDO` `/health-ping`, and WebSockets).
-- **API Telemetry & Latencies**: Endpoint performance table calculating P50, P95, and P99 percentiles alongside 2xx/4xx/5xx status breakdowns.
-- **Time-Series Charts**: Pure responsive SVG charts for Invocations & Errors, Latency Percentiles (Avg, P50, P95, P99), and Worker CPU execution duration.
-- **D1 & KV Storage Insights**: D1 query counters, table row inventory, slow query logs (`> 35ms`), and 7-day persistent cart cache operations.
-- **Durable Objects & Real-Time Sync**: Live tracking of connected WebSocket sessions, catalog broadcast throughput, and serialized atomic purchase latencies.
-- **Centralized Logs & Error Center**: Filterable telemetry stream (`INFO`, `WARN`, `ERROR`), live search, and slide-out inspector drawer with formatted JSON payloads and stack traces.
-- **Distributed Tracing & Waterfall Visualizer**: Request correlation using universal `X-Request-ID` propagation and Gantt-style latency waterfalls across Pages ➜ Worker ➜ DO ➜ D1/KV.
-- **CI/CD Deployments & Business Correlation**: 5-stage automated provisioning visualizer, release audit log, and business analytics correlating infrastructure performance to checkout conversion rates and revenue velocity.
+For full architectural, schema, and API documentation, see [OBSERVABILITY.md](OBSERVABILITY.md).
+
+### Metric Honesty & Observability Principles
+- **Zero Fake Metrics**: Production mode contains no seeded telemetry, synthetic traces, or hardcoded fallback numbers (e.g. `p95 || 35`). Unexposed metrics return `UNAVAILABLE` with `value: null`.
+- **Source Classification**: Every metric identifies its explicit provenance: `CLOUDFLARE_NATIVE`, `APPLICATION_INSTRUMENTED`, `CALCULATED`, `UNAVAILABLE`, or `DEMO`.
+- **System Health & Subsystem Probes**: Active probes across all architectural tiers (Worker, D1 SQLite `SELECT 1`, KV read/write/delete, `InventoryDO` `/health-ping`, and WebSockets). Pages and Pages Functions honestly report `UNKNOWN` (`Observability limited`) from within the Worker isolate.
+- **Centralized Logs & Redaction**: Filterable telemetry stream with automatic sanitization of authorization tokens, Cloudflare API tokens, cookies, passwords, and payment details.
+- **Distributed Tracing & Correlation**: Universal `X-Request-ID` propagation across client, worker, database, and actor model with honest, data-driven span waterfalls.
+- **Demo Mode**: Offline demonstration simulation is strictly isolated behind `MONITORING_DEMO_MODE=true` with prominent UI labeling.
 
 ### Automated Testing & Verification
 ```bash
-# Run the 30-check automated verification test suite
+# Run the 48-check automated verification test suite
 npm run test:monitoring
 ```
-*Validates 100% of monitoring endpoints, core e-commerce CRUD regressions, and metric integrity rules.*
+*Validates 100% of monitoring endpoints, metric honesty, source classification, PII sanitization, and core e-commerce CRUD regressions.*
+
 
