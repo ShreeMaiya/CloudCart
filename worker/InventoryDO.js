@@ -27,6 +27,17 @@ export class InventoryDO {
     const method = request.method;
     const path = url.pathname;
 
+    if (path === "/health-ping") {
+      return new Response(JSON.stringify({
+        status: "OK",
+        role: "Real-time inventory synchronization and atomic inventory coordination.",
+        activeConnections: this.sessions.size,
+        timestamp: new Date().toISOString()
+      }), {
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+
     if (path === "/sync-broadcast" && method === "POST") {
       const payload = await request.json();
       this.broadcast(payload);

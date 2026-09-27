@@ -1,11 +1,12 @@
 import { InventoryDO, InventorySyncDO } from "./InventoryDO.js";
+import { handleMonitoringRoute } from "./monitoring/routes.js";
 
 export { InventoryDO, InventorySyncDO };
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Request-ID",
 };
 
 function jsonResponse(data, status = 200) {
@@ -60,6 +61,12 @@ export default {
           service: "CloudCart Cloudflare API",
           timestamp: new Date().toISOString()
         });
+      }
+
+      // Monitoring & Observability API Routes
+      if (path.startsWith("/api/monitoring")) {
+        const monResponse = await handleMonitoringRoute(request, env, ctx, path, url);
+        if (monResponse) return monResponse;
       }
 
       // 4. Products Endpoints

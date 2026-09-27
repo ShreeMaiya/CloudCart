@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CloudCart — Monitoring & Observability</title>
+  <meta name="description" content="Production monitoring, system health, and edge observability for CloudCart platform.">
+  <link rel="stylesheet" href="../../css/styles.css">
+  <link rel="stylesheet" href="css/monitoring.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- Demo Data Banner (conditionally displayed if running local mock telemetry) -->
+  <div class="demo-banner" id="demoBanner" style="display: none;">
+    ⚠️ <span>DEMO DATA — Running in local development mode. Cloudflare credentials not detected.</span>
+  </div>
+
+  <!-- Header -->
+  <header class="monitor-header">
+    <div class="brand-section">
+      <div>
+        <h1>⚡ CloudCart Observability</h1>
+        <p>Real-Time Edge Health, Latency, and Infrastructure Telemetry</p>
+      </div>
+    </div>
+
+    <div class="nav-links">
+      <a href="/admin/" class="nav-link">← Back to Admin Portal</a>
+      <a href="/" class="nav-link" target="_blank">Storefront ↗</a>
+    </div>
+  </header>
+
+  <!-- Global Controls Bar -->
+  <section class="controls-bar">
+    <div class="controls-group">
+      <span class="controls-label">Time Range:</span>
+      <div class="range-chips" id="timeRangeChips">
+        <button class="chip-btn" data-range="15m">15m</button>
+        <button class="chip-btn active" data-range="1h">1h</button>
+        <button class="chip-btn" data-range="6h">6h</button>
+        <button class="chip-btn" data-range="24h">24h</button>
+        <button class="chip-btn" data-range="7d">7d</button>
+      </div>
+    </div>
+
+    <div class="controls-group">
+      <span class="controls-label">Auto-Refresh:</span>
+      <select class="select-control" id="autoRefreshSelect">
+        <option value="0">Off</option>
+        <option value="15000">15 seconds</option>
+        <option value="30000" selected>30 seconds</option>
+        <option value="60000">1 minute</option>
+      </select>
+
+      <button class="btn-refresh" id="manualRefreshBtn">
+        <span id="refreshIcon">↻</span> Refresh Now
+      </button>
+
+      <span class="last-updated" id="lastUpdatedText">Last updated: --:--:--</span>
+    </div>
+  </section>
+
+  <!-- Navigation Tabs -->
+  <nav class="monitor-tabs" id="monitorTabs">
+    <button class="tab-btn active" data-tab="overview">📊 Overview</button>
+    <button class="tab-btn" data-tab="services">🛡️ Services</button>
+    <button class="tab-btn" data-tab="api">🔌 API</button>
+    <button class="tab-btn" data-tab="performance">📈 Performance</button>
+    <button class="tab-btn" data-tab="database">💾 Database</button>
+    <button class="tab-btn" data-tab="realtime">⚡ Real-Time</button>
+    <button class="tab-btn" data-tab="logs">📜 Logs</button>
+    <button class="tab-btn" data-tab="traces">🔍 Traces</button>
+    <button class="tab-btn" data-tab="deployments">🚀 Deployments</button>
+  </nav>
+
+  <!-- 1. OVERVIEW VIEW -->
+  <section class="tab-view active" id="view-overview">
+    <!-- System Health Banner -->
+    <div class="system-health-banner">
+      <div class="health-status-main">
+        <div class="health-indicator-circle" id="overviewHealthIcon">✓</div>
+        <div class="health-text-meta">
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <h2>System Status:</h2>
+            <span class="status-badge healthy" id="overviewStatusBadge">HEALTHY</span>
+          </div>
+          <p id="overviewLastChecked">Last health check executed: Just now</p>
+        </div>
+      </div>
+
+      <div class="health-counts-pills">
+        <div class="count-pill">
+          <div class="count-pill-num" style="color: var(--success);" id="countHealthy">--</div>
+          <div class="count-pill-label">Healthy</div>
+        </div>
+        <div class="count-pill">
+          <div class="count-pill-num" style="color: var(--warning);" id="countDegraded">--</div>
+          <div class="count-pill-label">Degraded</div>
+        </div>
+        <div class="count-pill">
+          <div class="count-pill-num" style="color: var(--danger);" id="countFailed">--</div>
+          <div class="count-pill-label">Failed</div>
+        </div>
+        <div class="count-pill">
+          <div class="count-pill-num" style="color: var(--accent-blue);" id="countTotal">--</div>
+          <div class="count-pill-label">Total Services</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Metrics Grid -->
+    <div class="metrics-grid">
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Total Requests</span>
+          <span class="metric-icon">🌐</span>
+        </div>
+        <div class="metric-value" id="valTotalRequests">--</div>
+        <div class="metric-sub" id="valRequestRate">-- req/sec</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Error Rate</span>
+          <span class="metric-icon">⚠️</span>
+        </div>
+        <div class="metric-value" id="valErrorRate" style="color: var(--success);">--%</div>
+        <div class="metric-sub">Target: &lt; 0.5%</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Average Latency</span>
+          <span class="metric-icon">⚡</span>
+        </div>
+        <div class="metric-value" id="valAvgLatency">-- ms</div>
+        <div class="metric-sub" id="valLatencySpread">P50: -- ms | P95: -- ms</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">P99 Latency</span>
+          <span class="metric-icon">⏱️</span>
+        </div>
+        <div class="metric-value" id="valP99Latency">-- ms</div>
+        <div class="metric-sub">99th percentile response time</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Worker CPU Time</span>
+          <span class="metric-icon">🧠</span>
+        </div>
+        <div class="metric-value" id="valCpuTime">-- ms</div>
+        <div class="metric-sub">Average CPU execution duration</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Active WebSockets</span>
+          <span class="metric-icon">📡</span>
+        </div>
+        <div class="metric-value" id="valActiveWS" style="color: var(--accent-cyan);">--</div>
+        <div class="metric-sub">Connected client sessions</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">D1 Query Activity</span>
+          <span class="metric-icon">💾</span>
+        </div>
+        <div class="metric-value" style="font-size: 1.15rem;" id="valD1Activity">Active</div>
+        <div class="metric-sub">cloudcart-db operational</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">KV Operation Activity</span>
+          <span class="metric-icon">🗄️</span>
+        </div>
+        <div class="metric-value" style="font-size: 1.15rem;" id="valKVActivity">Active</div>
+        <div class="metric-sub">cloudcart-kv operational</div>
+      </div>
+    </div>
+
+    <!-- Service Health Summary Table -->
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">🛡️ Service Health Status</h2>
+          <p class="panel-desc">Real-time status across Cloudflare Pages, Worker, D1, KV, and Durable Objects</p>
+        </div>
+        <button class="btn-refresh" onclick="window.switchTab('services')">View Full Services Detail →</button>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Service Name</th>
+            <th>Architecture Tier</th>
+            <th>Status</th>
+            <th>Response Time</th>
+            <th>Last Checked</th>
+            <th>Error Count</th>
+          </tr>
+        </thead>
+        <tbody id="overviewServicesTableBody">
+          <tr><td colspan="6" class="empty-state">Probing services...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 2. SERVICES VIEW -->
+  <section class="tab-view" id="view-services">
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">🛡️ Subsystem Health Breakdown</h2>
+          <p class="panel-desc">Detailed health telemetry, diagnostics, and error reporting for every architectural tier</p>
+        </div>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Service</th>
+            <th>Tier</th>
+            <th>Description & Role</th>
+            <th>Status</th>
+            <th>Response Time</th>
+            <th>Last Checked</th>
+            <th>Diagnostic Info</th>
+          </tr>
+        </thead>
+        <tbody id="servicesDetailedTableBody">
+          <tr><td colspan="7" class="empty-state">Loading detailed service diagnostics...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 3. API VIEW -->
+  <section class="tab-view" id="view-api">
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">🔌 CloudCart API Endpoints</h2>
+          <p class="panel-desc">Request throughput, error distribution, and latency percentiles per route</p>
+        </div>
+      </div>
+      <div class="info-callout">
+        <span>ℹ️</span>
+        <div><strong>Phase 2 Instrumentation:</strong> Request telemetry tracking will begin collecting route metrics as requests flow through the application.</div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Endpoint</th>
+            <th>Requests</th>
+            <th>Success</th>
+            <th>Errors</th>
+            <th>2xx</th>
+            <th>4xx</th>
+            <th>5xx</th>
+            <th>Avg</th>
+            <th>P50</th>
+            <th>P95</th>
+            <th>P99</th>
+          </tr>
+        </thead>
+        <tbody id="apiEndpointsTableBody">
+          <!-- Populated in Phase 2 -->
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 4. PERFORMANCE VIEW -->
+  <section class="tab-view" id="view-performance">
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">📈 System Performance & Latency Over Time</h2>
+          <p class="panel-desc">Aggregated metrics, CPU duration, and latency percentiles (15m, 1h, 6h, 24h, 7d)</p>
+        </div>
+      </div>
+      <div class="info-callout">
+        <span>ℹ️</span>
+        <div><strong>Phase 3 Cloudflare GraphQL:</strong> Connecting Workers Analytics and invocation datasets.</div>
+      </div>
+      <div class="empty-state">
+        <div class="empty-state-icon">📈</div>
+        <h3>Performance charts configured for Phase 3</h3>
+        <p>Supports requests, errors, CPU time, and execution duration trends.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5. DATABASE VIEW -->
+  <section class="tab-view" id="view-database">
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">💾 Cloudflare D1 & KV Monitoring</h2>
+          <p class="panel-desc">Database query latency, slow queries, storage, and KV operations</p>
+        </div>
+      </div>
+      <div class="info-callout">
+        <span>ℹ️</span>
+        <div><strong>Phase 4 D1 & KV Insights:</strong> Query breakdown and cache operation telemetry.</div>
+      </div>
+      <div class="empty-state">
+        <div class="empty-state-icon">💾</div>
+        <h3>D1 & KV monitoring configured for Phase 4</h3>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6. REAL-TIME VIEW -->
+  <section class="tab-view" id="view-realtime">
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">⚡ Durable Object & WebSocket Sync</h2>
+          <p class="panel-desc">Multi-client inventory synchronization and atomic transaction coordination</p>
+        </div>
+      </div>
+      <div class="info-callout">
+        <span>ℹ️</span>
+        <div><strong>Phase 4 Real-Time:</strong> Live WebSocket connection lifecycle and message throughput.</div>
+      </div>
+      <div class="empty-state">
+        <div class="empty-state-icon">⚡</div>
+        <h3>Durable Object & WebSocket telemetry configured for Phase 4</h3>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7. LOGS VIEW -->
+  <section class="tab-view" id="view-logs">
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">📜 Centralized Logs & Error Center</h2>
+          <p class="panel-desc">Filter by service, severity, endpoint, or search terms</p>
+        </div>
+      </div>
+      <div class="info-callout">
+        <span>ℹ️</span>
+        <div><strong>Phase 5 Logs:</strong> Structured ring-buffer telemetry and error inspection modal.</div>
+      </div>
+      <div class="empty-state">
+        <div class="empty-state-icon">📜</div>
+        <h3>Centralized logging configured for Phase 5</h3>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8. TRACES VIEW -->
+  <section class="tab-view" id="view-traces">
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">🔍 Distributed Tracing & Request Correlation</h2>
+          <p class="panel-desc">Hop-by-hop latency waterfall (Pages → Worker → DO → D1 → KV)</p>
+        </div>
+      </div>
+      <div class="info-callout">
+        <span>ℹ️</span>
+        <div><strong>Phase 6 Traces:</strong> Request ID propagation and waterfall visualization.</div>
+      </div>
+      <div class="empty-state">
+        <div class="empty-state-icon">🔍</div>
+        <h3>Request tracing configured for Phase 6</h3>
+      </div>
+    </div>
+  </section>
+
+  <!-- 9. DEPLOYMENTS VIEW -->
+  <section class="tab-view" id="view-deployments">
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">🚀 CI/CD & Deployments</h2>
+          <p class="panel-desc">GitHub Actions automated provisioning and Wrangler deployment history</p>
+        </div>
+      </div>
+      <div class="info-callout">
+        <span>ℹ️</span>
+        <div><strong>Phase 7 Deployments:</strong> Workflow status, commit metadata, and release metrics.</div>
+      </div>
+      <div class="empty-state">
+        <div class="empty-state-icon">🚀</div>
+        <h3>Deployment tracking configured for Phase 7</h3>
+      </div>
+    </div>
+  </section>
+
+  <script type="module" src="js/monitoring.js"></script>
+</body>
+</html>
