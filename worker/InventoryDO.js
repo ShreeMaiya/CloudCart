@@ -27,17 +27,7 @@ export class InventoryDO {
     const method = request.method;
     const path = url.pathname;
 
-    if (path === "/health" || path === "/stats") {
-      return new Response(JSON.stringify({
-        status: "OK",
-        activeConnections: this.sessions.size,
-        broadcastCount: this.broadcastCount || 0,
-        purchaseCount: this.purchaseCount || 0
-      }), { headers: { "Content-Type": "application/json" } });
-    }
-
     if (path === "/sync-broadcast" && method === "POST") {
-      this.broadcastCount = (this.broadcastCount || 0) + 1;
       const payload = await request.json();
       this.broadcast(payload);
       return new Response(JSON.stringify({ success: true, activeConnections: this.sessions.size }), {
@@ -46,7 +36,6 @@ export class InventoryDO {
     }
 
     if (path === "/atomic-purchase" && method === "POST") {
-      this.purchaseCount = (this.purchaseCount || 0) + 1;
       const { items, customerName } = await request.json();
       return await this.handleAtomicPurchase(items, customerName);
     }

@@ -60,16 +60,6 @@ flowchart TD
 - **Add Product Modal**: Form to add new products directly into Cloudflare D1.
 - **Recent Customer Orders Table**: Live listing of customer purchases showing Order ID, Customer Name, Items Summary, Total (₹), and Timestamp.
 - **Customer Reviews & Feedback Panel**: Live table displaying submitted customer reviews and star ratings.
-- **Observability Shortcut**: Dedicated header button to launch the Operations & Observability Mission Control.
-
-### 📊 3. Operations, Monitoring & Observability Hub (`/admin/monitoring/index.html`)
-- **System Health Matrix**: Real-time operational verification cards for Cloudflare Worker, D1 Database, KV Cache, Durable Objects, Pages CDN, and Cloudflare Platform backbone.
-- **Synthetic Health Check Probe**: Interactive active diagnostic ping measuring end-to-end round-trip latency across Worker runtime, D1 SQL queries, KV cache operations, and Durable Object clustering.
-- **Traffic & Latency Performance Analytics**: Live SVG vector time-series charts displaying requests-per-minute throughput, average execution duration, and P95 latency curves.
-- **HTTP Status Code & Edge Colocation Distribution**: Breakdown of 2xx success, 3xx redirects, 4xx client errors, 5xx edge exceptions, and active Cloudflare Edge Datacenters (e.g. BOM, BLR, LHR).
-- **E-Commerce Application Telemetry**: Checkout conversion tracking, successful vs failed purchase diagnostics, failure root cause taxonomy, and live inventory mutation stream.
-- **Live Edge Request & Error Log Terminal**: High-density monospace ring-buffer log viewer with real-time level filtering (INFO, WARN, ERROR), path search, status filtering, and expandable request trace inspector.
-- **Cloudflare Incident Alert Feed**: Live status integration tracking active Cloudflare platform incidents across Workers, D1, KV, and Pages.
 
 ---
 

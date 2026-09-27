@@ -89,54 +89,6 @@ body {
   border-color: var(--accent-blue);
 }
 
-.btn-obs {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.6rem;
-  background: rgba(16, 185, 129, 0.12);
-  border: 1px solid rgba(16, 185, 129, 0.35);
-  color: #34d399;
-  text-decoration: none;
-  font-size: 0.9rem;
-  font-weight: 700;
-  padding: 0.7rem 1.1rem;
-  border-radius: 10px;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 0 15px rgba(16, 185, 129, 0.1);
-}
-
-.btn-obs:hover {
-  background: rgba(16, 185, 129, 0.22);
-  border-color: #10b981;
-  color: #fff;
-  transform: translateY(-2px);
-  box-shadow: 0 0 20px rgba(16, 185, 129, 0.25);
-}
-
-.live-pulse {
-  width: 8px;
-  height: 8px;
-  background-color: #10b981;
-  border-radius: 50%;
-  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
-  animation: pulse-green 1.8s infinite;
-}
-
-@keyframes pulse-green {
-  0% {
-    transform: scale(0.95);
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
-  }
-  70% {
-    transform: scale(1);
-    box-shadow: 0 0 0 8px rgba(16, 185, 129, 0);
-  }
-  100% {
-    transform: scale(0.95);
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
-  }
-}
-
 /* Metrics Grid */
 .metrics-grid {
   display: grid;
