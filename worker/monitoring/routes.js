@@ -1,5 +1,6 @@
 // CloudCart Monitoring - REST API Routes Handler
 import { checkSubsystems } from "./health.js";
+import { getApiEndpointMetrics, getRecentRequests, getRecentBusinessEvents } from "./telemetry.js";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -39,13 +40,63 @@ export async function handleMonitoringRoute(request, env, ctx, path, url) {
     });
   }
 
-  // 3. Monitoring Overview
+  // 3. API Endpoints Performance Metrics
+  if (path === "/api/monitoring/api") {
+    const range = url.searchParams.get("range") || "1h";
+    const endpoint = url.searchParams.get("endpoint") || "all";
+    const status = url.searchParams.get("status") || "all";
+    const service = url.searchParams.get("service") || "all";
+
+    const apiMetrics = getApiEndpointMetrics({ range, endpoint, status, service });
+    return json({
+      success: true,
+      data: {
+        timeRange: range,
+        filters: { endpoint, status, service },
+        timestamp: new Date().toISOString(),
+        summary: apiMetrics.summary,
+        endpoints: apiMetrics.endpoints,
+        recentRequestsCount: apiMetrics.recentRequestsCount
+      }
+    });
+  }
+
+  // 4. Recent Requests Inspect Route
+  if (path === "/api/monitoring/api/recent") {
+    const limit = parseInt(url.searchParams.get("limit") || "30", 10);
+    const recent = getRecentRequests(Math.min(limit, 100));
+    return json({
+      success: true,
+      data: {
+        requests: recent
+      }
+    });
+  }
+
+  // 5. Business Events Log
+  if (path === "/api/monitoring/events") {
+    const events = getRecentBusinessEvents(30);
+    return json({
+      success: true,
+      data: {
+        events
+      }
+    });
+  }
+
+  // 6. Monitoring Overview
   if (path === "/api/monitoring/overview") {
+    const range = url.searchParams.get("range") || "1h";
     const health = await checkSubsystems(env, request);
+    const telemetryData = getApiEndpointMetrics({ range });
 
     // Extract active WebSocket count from DO service
     const doService = health.services.find(s => s.id === "inventory_do");
     const activeWs = doService?.details?.activeConnections || 0;
+
+    // Calculate approximate request rate
+    const rangeSeconds = range === "15m" ? 900 : range === "6h" ? 21600 : range === "24h" ? 86400 : range === "7d" ? 604800 : 3600;
+    const reqRate = Number((telemetryData.summary.totalRequests / (rangeSeconds / 60)).toFixed(1));
 
     return json({
       success: true,
@@ -60,13 +111,13 @@ export async function handleMonitoringRoute(request, env, ctx, path, url) {
           lastChecked: health.timestamp
         },
         mainMetrics: {
-          totalRequests: 1420,
-          requestRatePerSec: 4.8,
-          errorRatePercent: 0.14,
-          avgLatencyMs: 24,
-          p50LatencyMs: 18,
-          p95LatencyMs: 52,
-          p99LatencyMs: 110,
+          totalRequests: telemetryData.summary.totalRequests,
+          requestRatePerSec: reqRate,
+          errorRatePercent: telemetryData.summary.overallErrorRate,
+          avgLatencyMs: telemetryData.summary.overallAvgLatency,
+          p50LatencyMs: telemetryData.summary.overallP50,
+          p95LatencyMs: telemetryData.summary.overallP95,
+          p99LatencyMs: telemetryData.summary.overallP99,
           workerCpuTimeMs: 1.8,
           activeWebSocketConnections: activeWs,
           d1QueryActivity: "Active (SELECT 1 probe ok)",
@@ -79,5 +130,5 @@ export async function handleMonitoringRoute(request, env, ctx, path, url) {
     });
   }
 
-  return null; // Not handled by this monitoring router
+  return null;
 }

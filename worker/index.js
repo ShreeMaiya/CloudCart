@@ -1,5 +1,6 @@
 import { InventoryDO, InventorySyncDO } from "./InventoryDO.js";
 import { handleMonitoringRoute } from "./monitoring/routes.js";
+import { recordRequest } from "./monitoring/telemetry.js";
 
 export { InventoryDO, InventorySyncDO };
 
@@ -26,6 +27,8 @@ export default {
       return new Response(null, { headers: CORS_HEADERS });
     }
 
+    const startTime = performance.now();
+    const requestId = request.headers.get("X-Request-ID") || `req_${crypto.randomUUID().slice(0, 8)}`;
     const url = new URL(request.url);
     const path = url.pathname;
 
@@ -33,7 +36,68 @@ export default {
     const doId = env.INVENTORY_DO.idFromName("cloudcart-inventory-global");
     const doStub = env.INVENTORY_DO.get(doId);
 
+    let response;
+    let errorText = null;
+
     try {
+      response = await handleWorkerRequest(request, env, ctx, url, path, doStub, requestId);
+    } catch (err) {
+      console.error("Worker Server Error:", err);
+      errorText = err.message;
+      response = jsonResponse({ success: false, error: err.message }, 500);
+    }
+
+    const durationMs = performance.now() - startTime;
+
+    // Record Telemetry for all API endpoints (excluding monitoring pollers to prevent recursion)
+    if (path.startsWith("/api") && !path.startsWith("/api/monitoring")) {
+      const normalizedEndpoint = path.startsWith("/api/products/") ? "/api/products" : path;
+      let service = "CloudCart Worker";
+      if (path === "/api/checkout") service = "InventoryDO / D1";
+      else if (path === "/api/sync") service = "InventoryDO (WebSocket)";
+      else if (path.startsWith("/api/session/cart")) service = "CloudCart Worker / KV";
+      else if (path.startsWith("/api/products") || path === "/api/orders" || path === "/api/feedback" || path === "/api/metrics") {
+        service = "CloudCart Worker / D1";
+      }
+
+      let businessEvent = null;
+      if (path === "/api/products" && request.method === "POST" && response.status === 201) businessEvent = "PRODUCT_CREATED";
+      else if (path.startsWith("/api/products/") && request.method === "PUT" && response.status === 200) businessEvent = "PRODUCT_UPDATED";
+      else if (path.startsWith("/api/products/") && request.method === "DELETE" && response.status === 200) businessEvent = "PRODUCT_DELETED";
+      else if (path === "/api/checkout" && request.method === "POST") businessEvent = response.status === 200 ? "CHECKOUT_SUCCEEDED" : "CHECKOUT_FAILED";
+      else if (path === "/api/feedback" && request.method === "POST" && response.status === 201) businessEvent = "FEEDBACK_SUBMITTED";
+
+      recordRequest({
+        requestId,
+        endpoint: normalizedEndpoint,
+        method: request.method,
+        status: response.status,
+        durationMs,
+        service,
+        error: errorText,
+        businessEvent
+      });
+    }
+
+    try {
+      response.headers.set("X-Request-ID", requestId);
+    } catch (_) {
+      if (response.status !== 101) {
+        const newHeaders = new Headers(response.headers);
+        newHeaders.set("X-Request-ID", requestId);
+        response = new Response(response.body, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: newHeaders
+        });
+      }
+    }
+
+    return response;
+  }
+};
+
+async function handleWorkerRequest(request, env, ctx, url, path, doStub, requestId) {
       // 1. Real-time WebSocket connection route
       if (path === "/api/sync" || request.headers.get("Upgrade") === "websocket") {
         return await doStub.fetch(request);
@@ -275,9 +339,5 @@ export default {
       }
 
       return jsonResponse({ error: "Endpoint not found" }, 404);
-    } catch (err) {
-      console.error("Worker Server Error:", err);
-      return jsonResponse({ success: false, error: err.message }, 500);
-    }
-  }
-};
+}
+

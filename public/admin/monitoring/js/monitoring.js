@@ -8,6 +8,7 @@ let activeRange = "1h";
 let refreshIntervalMs = 30000;
 let refreshTimer = null;
 let lastData = null;
+let cachedEndpoints = [];
 
 // DOM Elements
 const timeRangeChips = document.getElementById("timeRangeChips");
@@ -40,15 +41,36 @@ const valActiveWS = document.getElementById("valActiveWS");
 const valD1Activity = document.getElementById("valD1Activity");
 const valKVActivity = document.getElementById("valKVActivity");
 
-// Tables
+// Overview & Services Tables
 const overviewServicesTableBody = document.getElementById("overviewServicesTableBody");
 const servicesDetailedTableBody = document.getElementById("servicesDetailedTableBody");
+
+// API Monitoring Elements
+const apiSummaryTotalRequests = document.getElementById("apiSummaryTotalRequests");
+const apiSummaryErrorRate = document.getElementById("apiSummaryErrorRate");
+const apiSummaryErrorsCount = document.getElementById("apiSummaryErrorsCount");
+const apiSummaryAvgLatency = document.getElementById("apiSummaryAvgLatency");
+const apiSummaryP95Latency = document.getElementById("apiSummaryP95Latency");
+const apiSummaryP50P99 = document.getElementById("apiSummaryP50P99");
+const apiSummaryWindowLabel = document.getElementById("apiSummaryWindowLabel");
+
+const apiFilterEndpoint = document.getElementById("apiFilterEndpoint");
+const apiFilterStatus = document.getElementById("apiFilterStatus");
+const apiFilterService = document.getElementById("apiFilterService");
+const apiSearchInput = document.getElementById("apiSearchInput");
+const apiResetFiltersBtn = document.getElementById("apiResetFiltersBtn");
+const apiEndpointsCountLabel = document.getElementById("apiEndpointsCountLabel");
+const apiEndpointsTableBody = document.getElementById("apiEndpointsTableBody");
+const apiRecentRequestsTableBody = document.getElementById("apiRecentRequestsTableBody");
+const refreshRecentRequestsBtn = document.getElementById("refreshRecentRequestsBtn");
 
 // Initialize Monitoring Dashboard
 async function initMonitoring() {
   setupEventListeners();
   setupAutoRefresh();
   await refreshAllMetrics();
+  await loadApiMetrics();
+  await loadRecentRequests();
 }
 
 function setupEventListeners() {
@@ -69,6 +91,9 @@ function setupEventListeners() {
       btn.classList.add("active");
       activeRange = btn.dataset.range;
       refreshAllMetrics();
+      if (activeTab === "api") {
+        loadApiMetrics();
+      }
     });
   }
 
@@ -87,9 +112,36 @@ function setupEventListeners() {
       refreshIcon.style.display = "inline-block";
       refreshIcon.style.animation = "spin 1s linear infinite";
       await refreshAllMetrics();
+      await loadApiMetrics();
+      await loadRecentRequests();
       manualRefreshBtn.disabled = false;
       refreshIcon.style.animation = "none";
     });
+  }
+
+  // API Filter Event Listeners
+  if (apiFilterEndpoint) apiFilterEndpoint.addEventListener("change", loadApiMetrics);
+  if (apiFilterStatus) apiFilterStatus.addEventListener("change", loadApiMetrics);
+  if (apiFilterService) apiFilterService.addEventListener("change", loadApiMetrics);
+
+  if (apiSearchInput) {
+    apiSearchInput.addEventListener("input", () => {
+      filterEndpointsLocally();
+    });
+  }
+
+  if (apiResetFiltersBtn) {
+    apiResetFiltersBtn.addEventListener("click", () => {
+      if (apiFilterEndpoint) apiFilterEndpoint.value = "all";
+      if (apiFilterStatus) apiFilterStatus.value = "all";
+      if (apiFilterService) apiFilterService.value = "all";
+      if (apiSearchInput) apiSearchInput.value = "";
+      loadApiMetrics();
+    });
+  }
+
+  if (refreshRecentRequestsBtn) {
+    refreshRecentRequestsBtn.addEventListener("click", loadRecentRequests);
   }
 }
 
@@ -102,6 +154,11 @@ window.switchTab = function(tabName) {
   tabViews.forEach(v => {
     v.classList.toggle("active", v.id === `view-${tabName}`);
   });
+
+  if (tabName === "api") {
+    loadApiMetrics();
+    loadRecentRequests();
+  }
 };
 
 function setupAutoRefresh() {
@@ -112,6 +169,10 @@ function setupAutoRefresh() {
   if (refreshIntervalMs > 0) {
     refreshTimer = setInterval(() => {
       refreshAllMetrics();
+      if (activeTab === "api") {
+        loadApiMetrics();
+        loadRecentRequests();
+      }
     }, refreshIntervalMs);
   }
 }
@@ -234,6 +295,162 @@ function renderDetailedServices(services) {
         <td class="mono">${latencyDisplay}</td>
         <td style="color: var(--text-muted); font-size: 0.85rem;">${timeStr}</td>
         <td style="font-size: 0.85rem;">${diagnostic}</td>
+      </tr>
+    `;
+  }).join("");
+}
+
+// -------------------------------------------------------------
+// API Monitoring Implementation (Phase 2)
+// -------------------------------------------------------------
+
+async function loadApiMetrics() {
+  if (!apiEndpointsTableBody) return;
+
+  const endpoint = apiFilterEndpoint ? apiFilterEndpoint.value : "all";
+  const status = apiFilterStatus ? apiFilterStatus.value : "all";
+  const service = apiFilterService ? apiFilterService.value : "all";
+
+  const url = `${API_BASE}/api?range=${activeRange}&endpoint=${encodeURIComponent(endpoint)}&status=${encodeURIComponent(status)}&service=${encodeURIComponent(service)}`;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`API metrics returned HTTP ${res.status}`);
+    const json = await res.json();
+
+    if (json.success && json.data) {
+      renderApiSummary(json.data.summary);
+      cachedEndpoints = json.data.endpoints || [];
+      filterEndpointsLocally();
+    }
+  } catch (err) {
+    console.error("Error loading API metrics:", err);
+    apiEndpointsTableBody.innerHTML = `<tr><td colspan="13" class="empty-state">Failed to load API endpoint metrics: ${err.message}</td></tr>`;
+  }
+}
+
+function renderApiSummary(summary) {
+  if (!summary) return;
+
+  if (apiSummaryTotalRequests) apiSummaryTotalRequests.textContent = Number(summary.totalRequests).toLocaleString();
+  if (apiSummaryErrorRate) {
+    apiSummaryErrorRate.textContent = `${summary.overallErrorRate}%`;
+    apiSummaryErrorRate.style.color = summary.overallErrorRate > 1.0 ? "var(--danger)" : summary.overallErrorRate > 0.5 ? "var(--warning)" : "var(--success)";
+  }
+  if (apiSummaryErrorsCount) apiSummaryErrorsCount.textContent = `${summary.totalErrors} total error${summary.totalErrors === 1 ? '' : 's'}`;
+  if (apiSummaryAvgLatency) apiSummaryAvgLatency.textContent = `${summary.overallAvgLatency} ms`;
+  if (apiSummaryP95Latency) apiSummaryP95Latency.textContent = `${summary.overallP95} ms`;
+  if (apiSummaryP50P99) apiSummaryP50P99.textContent = `P50: ${summary.overallP50} ms | P99: ${summary.overallP99} ms`;
+  if (apiSummaryWindowLabel) apiSummaryWindowLabel.textContent = `Window: Last ${activeRange}`;
+}
+
+function filterEndpointsLocally() {
+  const query = apiSearchInput ? apiSearchInput.value.trim().toLowerCase() : "";
+  let list = cachedEndpoints;
+
+  if (query) {
+    list = list.filter(ep => ep.endpoint.toLowerCase().includes(query) || ep.service.toLowerCase().includes(query));
+  }
+
+  renderApiEndpointsTable(list);
+}
+
+function renderApiEndpointsTable(endpoints) {
+  if (!apiEndpointsTableBody) return;
+
+  if (apiEndpointsCountLabel) {
+    apiEndpointsCountLabel.textContent = `Showing ${endpoints.length} endpoint${endpoints.length === 1 ? '' : 's'}`;
+  }
+
+  if (!endpoints || endpoints.length === 0) {
+    apiEndpointsTableBody.innerHTML = `
+      <tr>
+        <td colspan="13" class="empty-state">
+          No endpoints matched the selected filters.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  apiEndpointsTableBody.innerHTML = endpoints.map(ep => {
+    const errorRateClass = ep.errorRatePercent > 2.0 ? 'style="color: var(--danger); font-weight: 700;"' : ep.errorRatePercent > 0 ? 'style="color: var(--warning); font-weight: 700;"' : 'style="color: var(--success);"';
+
+    return `
+      <tr>
+        <td style="font-family: var(--font-mono); font-weight: 700; color: var(--accent-blue);">
+          ${ep.endpoint}
+        </td>
+        <td style="color: var(--text-muted); font-size: 0.82rem;">${ep.service}</td>
+        <td class="mono" style="font-weight: 700;">${Number(ep.requestCount).toLocaleString()}</td>
+        <td class="mono" style="color: var(--success);">${Number(ep.successCount).toLocaleString()}</td>
+        <td class="mono" style="color: ${ep.errorCount > 0 ? 'var(--danger)' : 'var(--text-muted)'}; font-weight: 700;">${ep.errorCount}</td>
+        <td class="mono" ${errorRateClass}>${ep.errorRatePercent}%</td>
+        <td class="mono" style="color: var(--success); font-size: 0.82rem;">${ep.count2xx}</td>
+        <td class="mono" style="color: ${ep.count4xx > 0 ? 'var(--warning)' : 'var(--text-muted)'}; font-size: 0.82rem;">${ep.count4xx}</td>
+        <td class="mono" style="color: ${ep.count5xx > 0 ? 'var(--danger)' : 'var(--text-muted)'}; font-size: 0.82rem;">${ep.count5xx}</td>
+        <td class="mono" style="font-weight: 700;">${ep.avgLatencyMs} ms</td>
+        <td class="mono">${ep.p50Ms} ms</td>
+        <td class="mono" style="color: ${ep.p95Ms > 100 ? 'var(--warning)' : 'inherit'}; font-weight: 700;">${ep.p95Ms} ms</td>
+        <td class="mono" style="color: ${ep.p99Ms > 150 ? 'var(--danger)' : 'inherit'};">${ep.p99Ms} ms</td>
+      </tr>
+    `;
+  }).join("");
+}
+
+async function loadRecentRequests() {
+  if (!apiRecentRequestsTableBody) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/recent?limit=25`);
+    if (!res.ok) return;
+    const json = await res.json();
+    if (json.success && json.data) {
+      renderRecentRequestsTable(json.data.requests || []);
+    }
+  } catch (err) {
+    console.warn("Could not load recent request stream:", err);
+  }
+}
+
+function renderRecentRequestsTable(requests) {
+  if (!apiRecentRequestsTableBody) return;
+
+  if (!requests || requests.length === 0) {
+    apiRecentRequestsTableBody.innerHTML = `
+      <tr>
+        <td colspan="8" class="empty-state">No requests recorded yet. Make API requests to see live activity stream.</td>
+      </tr>
+    `;
+    return;
+  }
+
+  apiRecentRequestsTableBody.innerHTML = requests.map(r => {
+    const statusClass = r.status >= 500 ? "down" : r.status >= 400 ? "degraded" : "healthy";
+    const methodColor = r.method === "POST" ? "#10b981" : r.method === "PUT" ? "#f59e0b" : r.method === "DELETE" ? "#ef4444" : "#3b82f6";
+    const timeStr = r.timestamp ? new Date(r.timestamp).toLocaleTimeString() : "--";
+    const eventBadge = r.businessEvent
+      ? `<span style="background: rgba(139, 92, 246, 0.2); border: 1px solid var(--accent-purple); color: #c4b5fd; padding: 0.15rem 0.45rem; border-radius: 6px; font-size: 0.72rem; font-weight: 700;">${r.businessEvent}</span>`
+      : `<span style="color: var(--text-muted); font-size: 0.75rem;">—</span>`;
+
+    return `
+      <tr>
+        <td class="mono" style="color: var(--accent-blue); font-size: 0.8rem; font-weight: 600;">${r.requestId}</td>
+        <td>
+          <span style="background: rgba(255,255,255,0.06); color: ${methodColor}; padding: 0.2rem 0.45rem; border-radius: 4px; font-size: 0.75rem; font-weight: 800; font-family: var(--font-mono);">
+            ${r.method}
+          </span>
+        </td>
+        <td class="mono" style="font-weight: 600;">${r.endpoint}</td>
+        <td style="color: var(--text-muted); font-size: 0.8rem;">${r.service}</td>
+        <td>
+          <span class="status-badge ${statusClass}" style="padding: 0.15rem 0.5rem; font-size: 0.72rem;">
+            ${r.status} ${r.statusClass}
+          </span>
+        </td>
+        <td class="mono" style="font-weight: 700;">${r.durationMs} ms</td>
+        <td>${eventBadge}</td>
+        <td style="color: var(--text-muted); font-size: 0.8rem;">${timeStr}</td>
       </tr>
     `;
   }).join("");

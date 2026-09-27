@@ -245,24 +245,110 @@
 
   <!-- 3. API VIEW -->
   <section class="tab-view" id="view-api">
+    <!-- API Summary KPI Cards -->
+    <div class="metrics-grid" style="margin-bottom: 1.5rem;">
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">API Requests (Window)</span>
+          <span class="metric-icon">🔌</span>
+        </div>
+        <div class="metric-value" id="apiSummaryTotalRequests">--</div>
+        <div class="metric-sub" id="apiSummaryWindowLabel">In selected time range</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">API Error Rate</span>
+          <span class="metric-icon">⚠️</span>
+        </div>
+        <div class="metric-value" id="apiSummaryErrorRate">--%</div>
+        <div class="metric-sub" id="apiSummaryErrorsCount">0 total errors</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Average Latency</span>
+          <span class="metric-icon">⚡</span>
+        </div>
+        <div class="metric-value" id="apiSummaryAvgLatency">-- ms</div>
+        <div class="metric-sub">Mean response duration</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">P95 Latency</span>
+          <span class="metric-icon">⏱️</span>
+        </div>
+        <div class="metric-value" id="apiSummaryP95Latency">-- ms</div>
+        <div class="metric-sub" id="apiSummaryP50P99">P50: -- ms | P99: -- ms</div>
+      </div>
+    </div>
+
+    <!-- API Filtering Toolbar -->
+    <div class="panel" style="padding: 1rem 1.25rem; margin-bottom: 1.5rem;">
+      <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; justify-content: space-between;">
+        <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+          <span class="controls-label">Filters:</span>
+          
+          <select class="select-control" id="apiFilterEndpoint">
+            <option value="all">All Endpoints</option>
+            <option value="/api/products">/api/products</option>
+            <option value="/api/checkout">/api/checkout</option>
+            <option value="/api/session/cart">/api/session/cart</option>
+            <option value="/api/feedback">/api/feedback</option>
+            <option value="/api/metrics">/api/metrics</option>
+            <option value="/api/health">/api/health</option>
+            <option value="/api/sync">/api/sync</option>
+          </select>
+
+          <select class="select-control" id="apiFilterStatus">
+            <option value="all">All Statuses</option>
+            <option value="2xx">2xx (Success)</option>
+            <option value="4xx">4xx (Client Errors)</option>
+            <option value="5xx">5xx (Server Errors)</option>
+            <option value="errors">Errors Only (4xx/5xx)</option>
+          </select>
+
+          <select class="select-control" id="apiFilterService">
+            <option value="all">All Services</option>
+            <option value="Worker">CloudCart Worker</option>
+            <option value="D1">Cloudflare D1</option>
+            <option value="KV">Cloudflare KV</option>
+            <option value="InventoryDO">InventoryDO</option>
+          </select>
+        </div>
+
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+          <input 
+            type="text" 
+            id="apiSearchInput" 
+            placeholder="Search endpoint or service..." 
+            style="background: var(--bg-dark); border: 1px solid var(--border-color); color: #fff; padding: 0.4rem 0.8rem; border-radius: 8px; font-size: 0.82rem; outline: none; min-width: 200px;"
+          />
+          <button class="chip-btn" id="apiResetFiltersBtn" style="border: 1px solid var(--border-color); padding: 0.4rem 0.75rem;">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- API Endpoints Performance Table -->
     <div class="panel">
       <div class="panel-header">
         <div>
-          <h2 class="panel-title">🔌 CloudCart API Endpoints</h2>
-          <p class="panel-desc">Request throughput, error distribution, and latency percentiles per route</p>
+          <h2 class="panel-title">🔌 Endpoint Performance Metrics</h2>
+          <p class="panel-desc">Request throughput, error distribution, and latency percentiles (P50, P95, P99)</p>
         </div>
+        <span class="last-updated" id="apiEndpointsCountLabel">Showing 0 endpoints</span>
       </div>
-      <div class="info-callout">
-        <span>ℹ️</span>
-        <div><strong>Phase 2 Instrumentation:</strong> Request telemetry tracking will begin collecting route metrics as requests flow through the application.</div>
-      </div>
+
       <table>
         <thead>
           <tr>
             <th>Endpoint</th>
+            <th>Service</th>
             <th>Requests</th>
             <th>Success</th>
             <th>Errors</th>
+            <th>Error Rate</th>
             <th>2xx</th>
             <th>4xx</th>
             <th>5xx</th>
@@ -273,7 +359,36 @@
           </tr>
         </thead>
         <tbody id="apiEndpointsTableBody">
-          <!-- Populated in Phase 2 -->
+          <tr><td colspan="13" class="empty-state">Loading endpoint performance metrics...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Live Captured Requests Stream -->
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">⚡ Live Request Activity Stream</h2>
+          <p class="panel-desc">Real-time requests instrumented with request ID correlation and execution timing</p>
+        </div>
+        <button class="btn-refresh" id="refreshRecentRequestsBtn">↻ Refresh Stream</button>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Request ID</th>
+            <th>Method</th>
+            <th>Endpoint</th>
+            <th>Service</th>
+            <th>Status</th>
+            <th>Duration</th>
+            <th>Business Event</th>
+            <th>Timestamp</th>
+          </tr>
+        </thead>
+        <tbody id="apiRecentRequestsTableBody">
+          <tr><td colspan="8" class="empty-state">Loading recent activity stream...</td></tr>
         </tbody>
       </table>
     </div>
