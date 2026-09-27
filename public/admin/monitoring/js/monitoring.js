@@ -456,5 +456,385 @@ function renderRecentRequestsTable(requests) {
   }).join("");
 }
 
-// Auto-run on DOM Ready
-document.addEventListener("DOMContentLoaded", initMonitoring);
+// -------------------------------------------------------------
+// Performance Monitoring Implementation (Phase 3)
+// -------------------------------------------------------------
+
+// Performance DOM Elements
+const perfSourceBadge = document.getElementById("perfSourceBadge");
+const perfNoteText = document.getElementById("perfNoteText");
+const perfWindowRangeLabel = document.getElementById("perfWindowRangeLabel");
+
+const perfTotalRequests = document.getElementById("perfTotalRequests");
+const perfRequestRate = document.getElementById("perfRequestRate");
+const perfErrorRate = document.getElementById("perfErrorRate");
+const perfTotalErrors = document.getElementById("perfTotalErrors");
+const perfAvgDuration = document.getElementById("perfAvgDuration");
+const perfAvgCpu = document.getElementById("perfAvgCpu");
+const perfP95P99 = document.getElementById("perfP95P99");
+const perfP50 = document.getElementById("perfP50");
+
+const svgRequestsChart = document.getElementById("svgRequestsChart");
+const tooltipRequests = document.getElementById("tooltipRequests");
+const svgLatencyChart = document.getElementById("svgLatencyChart");
+const tooltipLatency = document.getElementById("tooltipLatency");
+const svgCpuChart = document.getElementById("svgCpuChart");
+const tooltipCpu = document.getElementById("tooltipCpu");
+
+async function loadPerformanceMetrics() {
+  if (perfWindowRangeLabel) {
+    perfWindowRangeLabel.textContent = `Range: Last ${activeRange}`;
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/performance?range=${activeRange}`);
+    if (!res.ok) throw new Error(`Performance API returned HTTP ${res.status}`);
+    const json = await res.json();
+
+    if (json.success && json.data) {
+      renderPerformanceSummary(json.data);
+      renderRequestsChart(json.data.timeline || []);
+      renderLatencyChart(json.data.timeline || []);
+      renderCpuChart(json.data.timeline || []);
+    }
+  } catch (err) {
+    console.error("Error loading performance metrics:", err);
+  }
+}
+
+function renderPerformanceSummary(data) {
+  const { summary, source, isDemoData, note } = data;
+
+  if (perfSourceBadge) {
+    if (source === "CLOUDFLARE_GRAPHQL") {
+      perfSourceBadge.textContent = "Cloudflare GraphQL";
+      perfSourceBadge.className = "status-badge healthy";
+    } else {
+      perfSourceBadge.textContent = "Local Dev Mode (DEMO DATA)";
+      perfSourceBadge.className = "status-badge warning";
+    }
+  }
+
+  if (perfNoteText && note) {
+    perfNoteText.textContent = note;
+  }
+
+  if (!summary) return;
+
+  if (perfTotalRequests) perfTotalRequests.textContent = Number(summary.totalRequests).toLocaleString();
+  if (perfRequestRate) {
+    const rangeMins = activeRange === "15m" ? 15 : activeRange === "1h" ? 60 : activeRange === "6h" ? 360 : activeRange === "24h" ? 1440 : 10080;
+    const reqPerMin = Number((summary.totalRequests / rangeMins).toFixed(1));
+    perfRequestRate.textContent = `${reqPerMin} req/min`;
+  }
+
+  if (perfErrorRate) {
+    perfErrorRate.textContent = `${summary.errorRatePercent}%`;
+    perfErrorRate.style.color = summary.errorRatePercent > 1.0 ? "var(--danger)" : summary.errorRatePercent > 0 ? "var(--warning)" : "var(--success)";
+  }
+  if (perfTotalErrors) perfTotalErrors.textContent = `${summary.totalErrors} total error${summary.totalErrors === 1 ? '' : 's'}`;
+  if (perfAvgDuration) perfAvgDuration.textContent = `${summary.avgDurationMs} ms`;
+  if (perfAvgCpu) perfAvgCpu.textContent = `${summary.avgCpuTimeMs} ms`;
+  if (perfP95P99) perfP95P99.textContent = `${summary.p95} ms / ${summary.p99} ms`;
+  if (perfP50) perfP50.textContent = `P50: ${summary.p50} ms`;
+}
+
+// 1. Invocations & Errors SVG Chart
+function renderRequestsChart(timeline) {
+  if (!svgRequestsChart || timeline.length === 0) return;
+
+  const w = 800, h = 220;
+  const padLeft = 45, padRight = 20, padTop = 25, padBottom = 35;
+  const plotW = w - padLeft - padRight;
+  const plotH = h - padTop - padBottom;
+
+  const maxVal = Math.max(...timeline.map(t => t.requests), 10) * 1.15;
+  const step = plotW / timeline.length;
+  const barW = Math.max(6, Math.min(28, step * 0.65));
+
+  let svgHtml = `
+    <!-- Background Grid Lines -->
+    <line x1="${padLeft}" y1="${padTop}" x2="${w - padRight}" y2="${padTop}" class="chart-grid-line" />
+    <line x1="${padLeft}" y1="${padTop + plotH / 2}" x2="${w - padRight}" y2="${padTop + plotH / 2}" class="chart-grid-line" />
+    <line x1="${padLeft}" y1="${padTop + plotH}" x2="${w - padRight}" y2="${padTop + plotH}" stroke="rgba(255,255,255,0.15)" />
+
+    <!-- Y-Axis Labels -->
+    <text x="${padLeft - 8}" y="${padTop + 4}" text-anchor="end" class="chart-axis-text">${Math.round(maxVal)}</text>
+    <text x="${padLeft - 8}" y="${padTop + plotH / 2 + 4}" text-anchor="end" class="chart-axis-text">${Math.round(maxVal / 2)}</text>
+    <text x="${padLeft - 8}" y="${padTop + plotH + 4}" text-anchor="end" class="chart-axis-text">0</text>
+  `;
+
+  timeline.forEach((pt, i) => {
+    const barH = (pt.requests / maxVal) * plotH;
+    const x = padLeft + i * step + (step - barW) / 2;
+    const y = padTop + plotH - barH;
+
+    // Requests Bar
+    svgHtml += `
+      <rect x="${x}" y="${y}" width="${barW}" height="${barH}" rx="3" fill="#3b82f6" fill-opacity="0.85">
+        <animate attributeName="height" from="0" to="${barH}" dur="0.4s" />
+        <animate attributeName="y" from="${padTop + plotH}" to="${y}" dur="0.4s" />
+      </rect>
+    `;
+
+    // Error Marker
+    if (pt.errors > 0) {
+      svgHtml += `
+        <rect x="${x}" y="${Math.max(padTop, y - 8)}" width="${barW}" height="5" rx="1.5" fill="#ef4444" />
+      `;
+    }
+
+    // X-Axis Labels (show every 2nd or 3rd label if many points)
+    const showLabel = timeline.length <= 12 || i % 2 === 0;
+    if (showLabel) {
+      svgHtml += `
+        <text x="${x + barW / 2}" y="${h - 10}" text-anchor="middle" class="chart-axis-text">${pt.time}</text>
+      `;
+    }
+
+    // Interactive Hover Hitbox
+    svgHtml += `
+      <rect 
+        x="${padLeft + i * step}" 
+        y="${padTop}" 
+        width="${step}" 
+        height="${plotH}" 
+        fill="transparent" 
+        style="cursor: pointer;"
+        data-index="${i}"
+        class="chart-hitbox-req"
+      />
+    `;
+  });
+
+  svgRequestsChart.innerHTML = svgHtml;
+
+  // Add Hover Interactions
+  const hitboxes = svgRequestsChart.querySelectorAll(".chart-hitbox-req");
+  hitboxes.forEach(hb => {
+    hb.addEventListener("mouseenter", (e) => {
+      const idx = parseInt(hb.dataset.index, 10);
+      const pt = timeline[idx];
+      if (!pt || !tooltipRequests) return;
+
+      tooltipRequests.style.display = "block";
+      tooltipRequests.innerHTML = `
+        <div style="font-weight: 700; margin-bottom: 0.2rem; color: #fff;">${pt.time}</div>
+        <div style="color: var(--accent-blue);">Invocations: <strong>${pt.requests}</strong></div>
+        <div style="color: ${pt.errors > 0 ? 'var(--danger)' : 'var(--text-muted)'};">Errors: <strong>${pt.errors}</strong></div>
+      `;
+
+      const rect = svgRequestsChart.getBoundingClientRect();
+      const xPercent = (padLeft + idx * step + step / 2) / w;
+      tooltipRequests.style.left = `${Math.min(rect.width - 120, Math.max(10, xPercent * rect.width - 50))}px`;
+      tooltipRequests.style.top = `20px`;
+    });
+
+    hb.addEventListener("mouseleave", () => {
+      if (tooltipRequests) tooltipRequests.style.display = "none";
+    });
+  });
+}
+
+// 2. Latency Percentiles SVG Chart
+function renderLatencyChart(timeline) {
+  if (!svgLatencyChart || timeline.length === 0) return;
+
+  const w = 500, h = 220;
+  const padLeft = 40, padRight = 15, padTop = 25, padBottom = 35;
+  const plotW = w - padLeft - padRight;
+  const plotH = h - padTop - padBottom;
+
+  const maxVal = Math.max(...timeline.map(t => t.p99Ms), 40) * 1.15;
+  const step = plotW / (timeline.length - 1 || 1);
+
+  const getPoints = (key) => timeline.map((pt, i) => {
+    const x = padLeft + i * step;
+    const y = padTop + plotH - ((pt[key] / maxVal) * plotH);
+    return `${x},${y}`;
+  }).join(" ");
+
+  const pointsP99 = getPoints("p99Ms");
+  const pointsP95 = getPoints("p95Ms");
+  const pointsAvg = getPoints("avgLatencyMs");
+  const pointsP50 = getPoints("p50Ms");
+
+  let svgHtml = `
+    <!-- Grid -->
+    <line x1="${padLeft}" y1="${padTop}" x2="${w - padRight}" y2="${padTop}" class="chart-grid-line" />
+    <line x1="${padLeft}" y1="${padTop + plotH / 2}" x2="${w - padRight}" y2="${padTop + plotH / 2}" class="chart-grid-line" />
+    <line x1="${padLeft}" y1="${padTop + plotH}" x2="${w - padRight}" y2="${padTop + plotH}" stroke="rgba(255,255,255,0.15)" />
+
+    <!-- Y-Axis Labels -->
+    <text x="${padLeft - 6}" y="${padTop + 4}" text-anchor="end" class="chart-axis-text">${Math.round(maxVal)}ms</text>
+    <text x="${padLeft - 6}" y="${padTop + plotH / 2 + 4}" text-anchor="end" class="chart-axis-text">${Math.round(maxVal / 2)}ms</text>
+    <text x="${padLeft - 6}" y="${padTop + plotH + 4}" text-anchor="end" class="chart-axis-text">0ms</text>
+
+    <!-- Curves -->
+    <polyline fill="none" stroke="#ef4444" stroke-width="2" points="${pointsP99}" />
+    <polyline fill="none" stroke="#f59e0b" stroke-width="2" points="${pointsP95}" />
+    <polyline fill="none" stroke="#3b82f6" stroke-width="2.5" points="${pointsAvg}" />
+    <polyline fill="none" stroke="#06b6d4" stroke-width="1.8" stroke-dasharray="3 3" points="${pointsP50}" />
+  `;
+
+  // X-Axis Labels
+  timeline.forEach((pt, i) => {
+    if (timeline.length <= 8 || i % 2 === 0) {
+      const x = padLeft + i * step;
+      svgHtml += `<text x="${x}" y="${h - 10}" text-anchor="middle" class="chart-axis-text">${pt.time}</text>`;
+    }
+
+    svgHtml += `
+      <rect 
+        x="${padLeft + i * step - step / 2}" 
+        y="${padTop}" 
+        width="${step}" 
+        height="${plotH}" 
+        fill="transparent" 
+        style="cursor: pointer;"
+        data-index="${i}"
+        class="chart-hitbox-lat"
+      />
+    `;
+  });
+
+  svgLatencyChart.innerHTML = svgHtml;
+
+  // Tooltip
+  const hitboxes = svgLatencyChart.querySelectorAll(".chart-hitbox-lat");
+  hitboxes.forEach(hb => {
+    hb.addEventListener("mouseenter", () => {
+      const idx = parseInt(hb.dataset.index, 10);
+      const pt = timeline[idx];
+      if (!pt || !tooltipLatency) return;
+
+      tooltipLatency.style.display = "block";
+      tooltipLatency.innerHTML = `
+        <div style="font-weight: 700; margin-bottom: 0.2rem; color: #fff;">${pt.time}</div>
+        <div style="color: #ef4444;">P99: <strong>${pt.p99Ms} ms</strong></div>
+        <div style="color: #f59e0b;">P95: <strong>${pt.p95Ms} ms</strong></div>
+        <div style="color: #3b82f6;">Avg: <strong>${pt.avgLatencyMs} ms</strong></div>
+        <div style="color: #06b6d4;">P50: <strong>${pt.p50Ms} ms</strong></div>
+      `;
+
+      const rect = svgLatencyChart.getBoundingClientRect();
+      const xPercent = (padLeft + idx * step) / w;
+      tooltipLatency.style.left = `${Math.min(rect.width - 130, Math.max(10, xPercent * rect.width - 60))}px`;
+      tooltipLatency.style.top = `15px`;
+    });
+
+    hb.addEventListener("mouseleave", () => {
+      if (tooltipLatency) tooltipLatency.style.display = "none";
+    });
+  });
+}
+
+// 3. Worker CPU vs Execution Duration SVG Chart
+function renderCpuChart(timeline) {
+  if (!svgCpuChart || timeline.length === 0) return;
+
+  const w = 500, h = 220;
+  const padLeft = 40, padRight = 15, padTop = 25, padBottom = 35;
+  const plotW = w - padLeft - padRight;
+  const plotH = h - padTop - padBottom;
+
+  const maxVal = Math.max(...timeline.map(t => t.durationMs), 25) * 1.15;
+  const step = plotW / (timeline.length - 1 || 1);
+
+  const getPoints = (key) => timeline.map((pt, i) => {
+    const x = padLeft + i * step;
+    const y = padTop + plotH - ((pt[key] / maxVal) * plotH);
+    return `${x},${y}`;
+  }).join(" ");
+
+  const pointsDur = getPoints("durationMs");
+  const pointsCpu = getPoints("cpuTimeMs");
+
+  // Area path for duration
+  const areaDur = `${padLeft},${padTop + plotH} ${pointsDur} ${padLeft + plotW},${padTop + plotH}`;
+  // Area path for CPU
+  const areaCpu = `${padLeft},${padTop + plotH} ${pointsCpu} ${padLeft + plotW},${padTop + plotH}`;
+
+  let svgHtml = `
+    <!-- Grid -->
+    <line x1="${padLeft}" y1="${padTop}" x2="${w - padRight}" y2="${padTop}" class="chart-grid-line" />
+    <line x1="${padLeft}" y1="${padTop + plotH / 2}" x2="${w - padRight}" y2="${padTop + plotH / 2}" class="chart-grid-line" />
+    <line x1="${padLeft}" y1="${padTop + plotH}" x2="${w - padRight}" y2="${padTop + plotH}" stroke="rgba(255,255,255,0.15)" />
+
+    <!-- Y-Axis Labels -->
+    <text x="${padLeft - 6}" y="${padTop + 4}" text-anchor="end" class="chart-axis-text">${Math.round(maxVal)}ms</text>
+    <text x="${padLeft - 6}" y="${padTop + plotH / 2 + 4}" text-anchor="end" class="chart-axis-text">${Math.round(maxVal / 2)}ms</text>
+    <text x="${padLeft - 6}" y="${padTop + plotH + 4}" text-anchor="end" class="chart-axis-text">0ms</text>
+
+    <!-- Area & Lines -->
+    <polygon points="${areaDur}" fill="rgba(16, 185, 129, 0.12)" />
+    <polyline fill="none" stroke="#10b981" stroke-width="2" points="${pointsDur}" />
+
+    <polygon points="${areaCpu}" fill="rgba(139, 92, 246, 0.25)" />
+    <polyline fill="none" stroke="#8b5cf6" stroke-width="2.5" points="${pointsCpu}" />
+  `;
+
+  // X-Axis Labels
+  timeline.forEach((pt, i) => {
+    if (timeline.length <= 8 || i % 2 === 0) {
+      const x = padLeft + i * step;
+      svgHtml += `<text x="${x}" y="${h - 10}" text-anchor="middle" class="chart-axis-text">${pt.time}</text>`;
+    }
+
+    svgHtml += `
+      <rect 
+        x="${padLeft + i * step - step / 2}" 
+        y="${padTop}" 
+        width="${step}" 
+        height="${plotH}" 
+        fill="transparent" 
+        style="cursor: pointer;"
+        data-index="${i}"
+        class="chart-hitbox-cpu"
+      />
+    `;
+  });
+
+  svgCpuChart.innerHTML = svgHtml;
+
+  // Tooltip
+  const hitboxes = svgCpuChart.querySelectorAll(".chart-hitbox-cpu");
+  hitboxes.forEach(hb => {
+    hb.addEventListener("mouseenter", () => {
+      const idx = parseInt(hb.dataset.index, 10);
+      const pt = timeline[idx];
+      if (!pt || !tooltipCpu) return;
+
+      tooltipCpu.style.display = "block";
+      tooltipCpu.innerHTML = `
+        <div style="font-weight: 700; margin-bottom: 0.2rem; color: #fff;">${pt.time}</div>
+        <div style="color: #10b981;">Duration: <strong>${pt.durationMs} ms</strong></div>
+        <div style="color: #8b5cf6;">Worker CPU: <strong>${pt.cpuTimeMs} ms</strong></div>
+      `;
+
+      const rect = svgCpuChart.getBoundingClientRect();
+      const xPercent = (padLeft + idx * step) / w;
+      tooltipCpu.style.left = `${Math.min(rect.width - 130, Math.max(10, xPercent * rect.width - 60))}px`;
+      tooltipCpu.style.top = `15px`;
+    });
+
+    hb.addEventListener("mouseleave", () => {
+      if (tooltipCpu) tooltipCpu.style.display = "none";
+    });
+  });
+}
+
+// Update switchTab to load performance when selected
+const origSwitchTab = window.switchTab;
+window.switchTab = function(tabName) {
+  origSwitchTab(tabName);
+  if (tabName === "performance") {
+    loadPerformanceMetrics();
+  }
+};
+
+// Also load performance on initial boot
+initMonitoring().then(() => {
+  loadPerformanceMetrics();
+});
+

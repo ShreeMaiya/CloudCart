@@ -396,21 +396,138 @@
 
   <!-- 4. PERFORMANCE VIEW -->
   <section class="tab-view" id="view-performance">
-    <div class="panel">
-      <div class="panel-header">
-        <div>
-          <h2 class="panel-title">📈 System Performance & Latency Over Time</h2>
-          <p class="panel-desc">Aggregated metrics, CPU duration, and latency percentiles (15m, 1h, 6h, 24h, 7d)</p>
+    <!-- Performance Data Source & Info Bar -->
+    <div class="panel" style="padding: 1rem 1.25rem; margin-bottom: 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+      <div style="display: flex; align-items: center; gap: 0.75rem;">
+        <span class="controls-label">Telemetry Source:</span>
+        <span class="status-badge healthy" id="perfSourceBadge">Cloudflare GraphQL</span>
+        <span style="font-size: 0.8rem; color: var(--text-muted);" id="perfNoteText">Live edge invocation analytics</span>
+      </div>
+      <div style="font-size: 0.82rem; color: var(--text-muted); font-family: var(--font-mono);" id="perfWindowRangeLabel">
+        Range: Last 1h
+      </div>
+    </div>
+
+    <!-- Performance KPI Cards -->
+    <div class="metrics-grid" style="margin-bottom: 1.5rem;">
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Window Invocations</span>
+          <span class="metric-icon">📈</span>
+        </div>
+        <div class="metric-value" id="perfTotalRequests">--</div>
+        <div class="metric-sub" id="perfRequestRate">-- req/min</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Edge Error Rate</span>
+          <span class="metric-icon">⚠️</span>
+        </div>
+        <div class="metric-value" id="perfErrorRate">--%</div>
+        <div class="metric-sub" id="perfTotalErrors">0 total errors</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Mean Execution Duration</span>
+          <span class="metric-icon">⏱️</span>
+        </div>
+        <div class="metric-value" id="perfAvgDuration">-- ms</div>
+        <div class="metric-sub">Edge wall-clock execution</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Worker CPU Time</span>
+          <span class="metric-icon">🧠</span>
+        </div>
+        <div class="metric-value" id="perfAvgCpu">-- ms</div>
+        <div class="metric-sub">Compute runtime allocation</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">P95 / P99 Latency</span>
+          <span class="metric-icon">🎯</span>
+        </div>
+        <div class="metric-value" style="font-size: 1.45rem;" id="perfP95P99">-- ms / -- ms</div>
+        <div class="metric-sub" id="perfP50">P50: -- ms</div>
+      </div>
+    </div>
+
+    <!-- Chart 1: Requests & Errors Over Time (Full Width) -->
+    <div class="chart-card chart-card-full" style="margin-bottom: 1.5rem;">
+      <div class="chart-header">
+        <div class="chart-title-wrap">
+          <h3>🌐 Invocations & Errors Over Time</h3>
+          <p>Request throughput and failed executions grouped into time buckets</p>
+        </div>
+        <div class="chart-legend">
+          <div class="legend-item">
+            <span class="legend-dot" style="background: var(--accent-blue);"></span> Requests
+          </div>
+          <div class="legend-item">
+            <span class="legend-dot" style="background: var(--danger);"></span> Errors
+          </div>
         </div>
       </div>
-      <div class="info-callout">
-        <span>ℹ️</span>
-        <div><strong>Phase 3 Cloudflare GraphQL:</strong> Connecting Workers Analytics and invocation datasets.</div>
+      <div class="chart-container" id="containerRequestsChart">
+        <svg class="chart-svg" id="svgRequestsChart" preserveAspectRatio="none" viewBox="0 0 800 220"></svg>
+        <div class="chart-tooltip" id="tooltipRequests"></div>
       </div>
-      <div class="empty-state">
-        <div class="empty-state-icon">📈</div>
-        <h3>Performance charts configured for Phase 3</h3>
-        <p>Supports requests, errors, CPU time, and execution duration trends.</p>
+    </div>
+
+    <!-- Chart 2 & 3 Grid -->
+    <div class="charts-grid">
+      <!-- Chart 2: Latency Percentiles Over Time -->
+      <div class="chart-card">
+        <div class="chart-header">
+          <div class="chart-title-wrap">
+            <h3>⏱️ Latency Percentiles (Avg, P50, P95, P99)</h3>
+            <p>Response duration distribution curves in milliseconds</p>
+          </div>
+          <div class="chart-legend">
+            <div class="legend-item">
+              <span class="legend-dot" style="background: #3b82f6;"></span> Avg
+            </div>
+            <div class="legend-item">
+              <span class="legend-dot" style="background: #06b6d4;"></span> P50
+            </div>
+            <div class="legend-item">
+              <span class="legend-dot" style="background: #f59e0b;"></span> P95
+            </div>
+            <div class="legend-item">
+              <span class="legend-dot" style="background: #ef4444;"></span> P99
+            </div>
+          </div>
+        </div>
+        <div class="chart-container" id="containerLatencyChart">
+          <svg class="chart-svg" id="svgLatencyChart" preserveAspectRatio="none" viewBox="0 0 500 220"></svg>
+          <div class="chart-tooltip" id="tooltipLatency"></div>
+        </div>
+      </div>
+
+      <!-- Chart 3: Worker CPU Time vs Execution Duration -->
+      <div class="chart-card">
+        <div class="chart-header">
+          <div class="chart-title-wrap">
+            <h3>🧠 CPU Compute vs Total Duration</h3>
+            <p>CPU execution time compared to full async duration</p>
+          </div>
+          <div class="chart-legend">
+            <div class="legend-item">
+              <span class="legend-dot" style="background: #8b5cf6;"></span> CPU Time (ms)
+            </div>
+            <div class="legend-item">
+              <span class="legend-dot" style="background: #10b981;"></span> Duration (ms)
+            </div>
+          </div>
+        </div>
+        <div class="chart-container" id="containerCpuChart">
+          <svg class="chart-svg" id="svgCpuChart" preserveAspectRatio="none" viewBox="0 0 500 220"></svg>
+          <div class="chart-tooltip" id="tooltipCpu"></div>
+        </div>
       </div>
     </div>
   </section>

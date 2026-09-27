@@ -1,6 +1,7 @@
 // CloudCart Monitoring - REST API Routes Handler
 import { checkSubsystems } from "./health.js";
 import { getApiEndpointMetrics, getRecentRequests, getRecentBusinessEvents } from "./telemetry.js";
+import { getPerformanceMetrics } from "./cloudflare/workers.js";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -84,7 +85,21 @@ export async function handleMonitoringRoute(request, env, ctx, path, url) {
     });
   }
 
-  // 6. Monitoring Overview
+  // 6. Performance Telemetry & Latency Timeline
+  if (path === "/api/monitoring/performance") {
+    const range = url.searchParams.get("range") || "1h";
+    const perf = await getPerformanceMetrics(env, range);
+    return json({
+      success: true,
+      data: {
+        timeRange: range,
+        timestamp: new Date().toISOString(),
+        ...perf
+      }
+    });
+  }
+
+  // 7. Monitoring Overview
   if (path === "/api/monitoring/overview") {
     const range = url.searchParams.get("range") || "1h";
     const health = await checkSubsystems(env, request);
