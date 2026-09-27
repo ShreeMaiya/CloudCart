@@ -534,40 +534,298 @@
 
   <!-- 5. DATABASE VIEW -->
   <section class="tab-view" id="view-database">
-    <div class="panel">
-      <div class="panel-header">
+    <!-- D1 Database Header & Status -->
+    <div class="panel" style="padding: 1.25rem 1.5rem; margin-bottom: 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+      <div style="display: flex; align-items: center; gap: 1rem;">
+        <span style="font-size: 1.8rem;">💾</span>
         <div>
-          <h2 class="panel-title">💾 Cloudflare D1 & KV Monitoring</h2>
-          <p class="panel-desc">Database query latency, slow queries, storage, and KV operations</p>
+          <h2 style="font-size: 1.25rem; font-weight: 800;">Cloudflare D1 Database: <span style="color: var(--accent-blue);">cloudcart-db</span></h2>
+          <p style="color: var(--text-muted); font-size: 0.85rem;">Serverless edge SQLite storing products catalog, customer orders, and customer feedback</p>
         </div>
       </div>
-      <div class="info-callout">
-        <span>ℹ️</span>
-        <div><strong>Phase 4 D1 & KV Insights:</strong> Query breakdown and cache operation telemetry.</div>
+      <div style="display: flex; gap: 0.75rem; align-items: center;">
+        <span class="status-badge healthy" id="d1StatusBadge">HEALTHY</span>
+        <button class="btn-refresh" id="refreshDatabaseBtn">↻ Refresh DB Metrics</button>
       </div>
-      <div class="empty-state">
-        <div class="empty-state-icon">💾</div>
-        <h3>D1 & KV monitoring configured for Phase 4</h3>
+    </div>
+
+    <!-- D1 Latency Contribution Callout -->
+    <div class="info-callout" id="d1LatencyCallout" style="background: rgba(16, 185, 129, 0.08); border-color: rgba(16, 185, 129, 0.25); color: #a7f3d0; margin-bottom: 1.5rem;">
+      <span style="font-size: 1.2rem;">📊</span>
+      <div id="d1LatencyContributionText">
+        <strong>Latency Contribution Analysis:</strong> Evaluating whether D1 queries are contributing to overall application latency...
+      </div>
+    </div>
+
+    <!-- D1 Metrics Grid -->
+    <div class="metrics-grid" style="margin-bottom: 1.5rem;">
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">D1 Query Volume</span>
+          <span class="metric-icon">🔍</span>
+        </div>
+        <div class="metric-value" id="d1TotalQueries">--</div>
+        <div class="metric-sub" id="d1ReadsWritesSub">Reads: -- | Writes: --</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Mean Query Latency</span>
+          <span class="metric-icon">⚡</span>
+        </div>
+        <div class="metric-value" id="d1AvgQueryLatency">-- ms</div>
+        <div class="metric-sub" id="d1P95Latency">P95: -- ms</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Slow Queries (&gt; 35ms)</span>
+          <span class="metric-icon">⏱️</span>
+        </div>
+        <div class="metric-value" id="d1SlowQueriesCount">0</div>
+        <div class="metric-sub">Queries exceeding threshold</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Query Errors</span>
+          <span class="metric-icon">⚠️</span>
+        </div>
+        <div class="metric-value" id="d1QueryErrors">0</div>
+        <div class="metric-sub" style="color: var(--success);">Zero syntax or lock errors</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Database Storage</span>
+          <span class="metric-icon">📦</span>
+        </div>
+        <div class="metric-value" style="font-size: 0.95rem; color: var(--text-muted); line-height: 1.4;" id="d1StorageInfo">Not available from current Cloudflare API</div>
+        <div class="metric-sub">Max Limit: 10 GB (D1 Standard)</div>
+      </div>
+    </div>
+
+    <!-- Tables and Slow Queries Grid -->
+    <div class="charts-grid" style="margin-bottom: 2.5rem;">
+      <!-- Table Rows Inventory -->
+      <div class="panel" style="margin-bottom: 0;">
+        <div class="panel-header">
+          <h3 class="panel-title">📑 D1 Database Tables</h3>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Table Name</th>
+              <th>Live Rows</th>
+              <th>Schema Role</th>
+            </tr>
+          </thead>
+          <tbody id="d1TablesTableBody">
+            <tr><td colspan="3" class="empty-state">Loading table row counts...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Slow Queries Investigation -->
+      <div class="panel" style="margin-bottom: 0;">
+        <div class="panel-header">
+          <h3 class="panel-title">🐢 Recent Queries & Slow Query Log</h3>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Query Statement</th>
+              <th>Duration</th>
+              <th>Timestamp</th>
+            </tr>
+          </thead>
+          <tbody id="d1SlowQueriesTableBody">
+            <tr><td colspan="4" class="empty-state">Loading slow queries log...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Cloudflare KV Section -->
+    <div class="panel" style="padding: 1.25rem 1.5rem; margin-bottom: 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+      <div style="display: flex; align-items: center; gap: 1rem;">
+        <span style="font-size: 1.8rem;">🗄️</span>
+        <div>
+          <h2 style="font-size: 1.25rem; font-weight: 800;">Cloudflare KV Namespace: <span style="color: var(--accent-purple);">cloudcart-kv</span></h2>
+          <p style="color: var(--text-muted); font-size: 0.85rem;">Global edge key-value storage caching multi-device shopping cart states (Key Pattern: <code>cart:&lt;sessionId&gt;</code>)</p>
+        </div>
+      </div>
+      <span class="status-badge healthy" id="kvStatusBadge">HEALTHY</span>
+    </div>
+
+    <!-- KV Metrics Grid -->
+    <div class="metrics-grid">
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">KV Operation Volume</span>
+          <span class="metric-icon">🔄</span>
+        </div>
+        <div class="metric-value" id="kvTotalOps">--</div>
+        <div class="metric-sub" id="kvOpsBreakdown">Reads: -- | Writes: -- | Deletes: --</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Avg Operation Latency</span>
+          <span class="metric-icon">⚡</span>
+        </div>
+        <div class="metric-value" id="kvAvgLatency">-- ms</div>
+        <div class="metric-sub">Global Edge Edge KV Cache</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Estimated Active Carts</span>
+          <span class="metric-icon">🛒</span>
+        </div>
+        <div class="metric-value" id="kvActiveCarts">--</div>
+        <div class="metric-sub">Retained via 7-day TTL</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">KV Storage Volume</span>
+          <span class="metric-icon">💾</span>
+        </div>
+        <div class="metric-value" style="font-size: 0.95rem; color: var(--text-muted); line-height: 1.4;" id="kvStorageInfo">Not available from current Cloudflare API</div>
+        <div class="metric-sub">Max Item Size: 25 MB</div>
       </div>
     </div>
   </section>
 
   <!-- 6. REAL-TIME VIEW -->
   <section class="tab-view" id="view-realtime">
-    <div class="panel">
-      <div class="panel-header">
+    <!-- DO Header -->
+    <div class="panel" style="padding: 1.25rem 1.5rem; margin-bottom: 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+      <div style="display: flex; align-items: center; gap: 1rem;">
+        <span style="font-size: 1.8rem;">⚡</span>
         <div>
-          <h2 class="panel-title">⚡ Durable Object & WebSocket Sync</h2>
-          <p class="panel-desc">Multi-client inventory synchronization and atomic transaction coordination</p>
+          <h2 style="font-size: 1.25rem; font-weight: 800;">Cloudflare Durable Object: <span style="color: var(--accent-cyan);">InventoryDO</span></h2>
+          <p style="color: var(--text-muted); font-size: 0.85rem;" id="doRoleDisplay">Real-time inventory synchronization and atomic inventory coordination.</p>
         </div>
       </div>
-      <div class="info-callout">
-        <span>ℹ️</span>
-        <div><strong>Phase 4 Real-Time:</strong> Live WebSocket connection lifecycle and message throughput.</div>
+      <div style="display: flex; gap: 0.75rem; align-items: center;">
+        <span class="status-badge healthy" id="doStatusBadge">HEALTHY</span>
+        <button class="btn-refresh" id="refreshRealtimeBtn">↻ Refresh Real-Time</button>
       </div>
-      <div class="empty-state">
-        <div class="empty-state-icon">⚡</div>
-        <h3>Durable Object & WebSocket telemetry configured for Phase 4</h3>
+    </div>
+
+    <!-- Real-Time Metrics Grid -->
+    <div class="metrics-grid" style="margin-bottom: 1.5rem;">
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Live WebSocket Clients</span>
+          <span class="metric-icon">📡</span>
+        </div>
+        <div class="metric-value" style="color: var(--accent-cyan);" id="doActiveConnections">0</div>
+        <div class="metric-sub" id="doConnectionsMeta">Opened: 0 | Closed: 0</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Broadcast Message Volume</span>
+          <span class="metric-icon">📢</span>
+        </div>
+        <div class="metric-value" id="doMessagesSent">0</div>
+        <div class="metric-sub" id="doMessagesReceived">Received (Pings): 0</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Atomic Purchases</span>
+          <span class="metric-icon">🔒</span>
+        </div>
+        <div class="metric-value" id="doTotalPurchases">0</div>
+        <div class="metric-sub" id="doPurchaseErrors">0 purchase failures</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Mean Purchase Latency</span>
+          <span class="metric-icon">⏱️</span>
+        </div>
+        <div class="metric-value" id="doAvgPurchaseLatency">-- ms</div>
+        <div class="metric-sub">Single-threaded D1 coordination</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">WebSocket Errors</span>
+          <span class="metric-icon">⚠️</span>
+        </div>
+        <div class="metric-value" id="doConnectionErrors">0</div>
+        <div class="metric-sub" style="color: var(--success);">Zero network drops</div>
+      </div>
+    </div>
+
+    <!-- Delineation: Cloudflare-provided vs Application-instrumented -->
+    <div class="charts-grid" style="margin-bottom: 2rem;">
+      <!-- Cloudflare Provided Card -->
+      <div class="panel" style="margin-bottom: 0;">
+        <div class="panel-header">
+          <h3 class="panel-title">☁️ Cloudflare-Provided Metrics & Architecture</h3>
+        </div>
+        <table>
+          <tbody>
+            <tr>
+              <td style="font-weight: 700;">Runtime</td>
+              <td style="color: var(--text-muted);" id="cfRuntime">Cloudflare Durable Objects</td>
+            </tr>
+            <tr>
+              <td style="font-weight: 700;">Actor Model</td>
+              <td style="color: var(--text-muted);" id="cfArchitecture">Single-threaded globally unique actor (zero race conditions)</td>
+            </tr>
+            <tr>
+              <td style="font-weight: 700;">Location Placement</td>
+              <td style="color: var(--text-muted);" id="cfLocation">Colocated nearest to primary edge coordinator</td>
+            </tr>
+            <tr>
+              <td style="font-weight: 700;">Memory Metrics</td>
+              <td style="color: var(--text-muted);" id="cfMemory">Not available from current Cloudflare API</td>
+            </tr>
+            <tr>
+              <td style="font-weight: 700;">WebSocket Hibernation</td>
+              <td style="color: var(--success);" id="cfHibernation">Supported (Automatic wake on client message)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Application Instrumented Card -->
+      <div class="panel" style="margin-bottom: 0;">
+        <div class="panel-header">
+          <h3 class="panel-title">🛠️ Application-Instrumented Metrics</h3>
+        </div>
+        <table>
+          <tbody>
+            <tr>
+              <td style="font-weight: 700;">Active WebSocket Clients</td>
+              <td class="mono" style="color: var(--accent-cyan); font-weight: 700;" id="appActiveWs">0</td>
+            </tr>
+            <tr>
+              <td style="font-weight: 700;">Total Connections Opened</td>
+              <td class="mono" id="appOpenedWs">0</td>
+            </tr>
+            <tr>
+              <td style="font-weight: 700;">Total Connections Closed</td>
+              <td class="mono" id="appClosedWs">0</td>
+            </tr>
+            <tr>
+              <td style="font-weight: 700;">Sync Broadcasts Dispatched</td>
+              <td class="mono" id="appBroadcasts">0</td>
+            </tr>
+            <tr>
+              <td style="font-weight: 700;">Atomic Purchase Invocations</td>
+              <td class="mono" id="appPurchases">0</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
   </section>

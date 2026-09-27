@@ -5,6 +5,17 @@ export class InventoryDO {
     this.state = state;
     this.env = env;
     this.sessions = new Set(); // Active WebSocket client connections
+    
+    // Telemetry & Lifecycle Instrumentation
+    this.totalConnectionsOpened = 0;
+    this.totalConnectionsClosed = 0;
+    this.totalMessagesSent = 0;
+    this.totalMessagesReceived = 0;
+    this.connectionErrors = 0;
+    this.totalPurchases = 0;
+    this.purchaseErrors = 0;
+    this.purchaseLatencies = [];
+    this.startedAt = new Date().toISOString();
   }
 
   async fetch(request) {
@@ -38,6 +49,32 @@ export class InventoryDO {
       });
     }
 
+    if (path === "/metrics") {
+      const avgPurchaseLat = this.purchaseLatencies.length > 0
+        ? Math.round(this.purchaseLatencies.reduce((a, b) => a + b, 0) / this.purchaseLatencies.length)
+        : 0;
+
+      return new Response(JSON.stringify({
+        success: true,
+        role: "Real-time inventory synchronization and atomic inventory coordination.",
+        className: "InventoryDO",
+        activeConnections: this.sessions.size,
+        totalConnectionsOpened: this.totalConnectionsOpened,
+        totalConnectionsClosed: this.totalConnectionsClosed,
+        totalMessagesSent: this.totalMessagesSent,
+        totalMessagesReceived: this.totalMessagesReceived,
+        connectionErrors: this.connectionErrors,
+        totalPurchases: this.totalPurchases,
+        purchaseErrors: this.purchaseErrors,
+        avgPurchaseLatencyMs: avgPurchaseLat,
+        recentPurchaseLatencies: this.purchaseLatencies.slice(-10),
+        startedAt: this.startedAt,
+        timestamp: new Date().toISOString()
+      }), {
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+
     if (path === "/sync-broadcast" && method === "POST") {
       const payload = await request.json();
       this.broadcast(payload);
@@ -57,6 +94,7 @@ export class InventoryDO {
   async handleSession(serverSocket) {
     serverSocket.accept();
     this.sessions.add(serverSocket);
+    this.totalConnectionsOpened++;
 
     // Send initial handshake message with connection metadata
     serverSocket.send(JSON.stringify({
@@ -69,6 +107,7 @@ export class InventoryDO {
     this.broadcastUserCount();
 
     serverSocket.addEventListener("message", async (evt) => {
+      this.totalMessagesReceived++;
       try {
         const data = JSON.parse(evt.data);
         if (data.type === "PING") {
@@ -81,11 +120,15 @@ export class InventoryDO {
 
     const closeHandler = () => {
       this.sessions.delete(serverSocket);
+      this.totalConnectionsClosed++;
       this.broadcastUserCount();
     };
 
     serverSocket.addEventListener("close", closeHandler);
-    serverSocket.addEventListener("error", closeHandler);
+    serverSocket.addEventListener("error", () => {
+      this.connectionErrors++;
+      closeHandler();
+    });
   }
 
   broadcastUserCount() {
@@ -102,6 +145,7 @@ export class InventoryDO {
   }
 
   broadcastRaw(message) {
+    this.totalMessagesSent += this.sessions.size;
     for (const session of this.sessions) {
       try {
         session.send(message);
@@ -112,8 +156,11 @@ export class InventoryDO {
   }
 
   async handleAtomicPurchase(items, customerName) {
+    const purchaseStart = performance.now();
+
     // Guard: validate items is a non-empty array
     if (!Array.isArray(items) || items.length === 0) {
+      this.purchaseErrors++;
       return new Response(JSON.stringify({
         success: false,
         error: "Cart is empty or invalid."
@@ -141,6 +188,7 @@ export class InventoryDO {
     }
 
     if (validationErrors.length > 0) {
+      this.purchaseErrors++;
       return new Response(JSON.stringify({
         success: false,
         error: validationErrors.join(" ")
@@ -192,11 +240,17 @@ export class InventoryDO {
       }
     });
 
+    const durationMs = Math.round(performance.now() - purchaseStart);
+    this.totalPurchases++;
+    this.purchaseLatencies.push(durationMs);
+    if (this.purchaseLatencies.length > 50) this.purchaseLatencies.shift();
+
     return new Response(JSON.stringify({
       success: true,
       orderId,
       totalAmount,
       itemsCount: totalItems,
+      durationMs,
       message: "Order placed successfully!"
     }), { headers: { "Content-Type": "application/json" } });
   }

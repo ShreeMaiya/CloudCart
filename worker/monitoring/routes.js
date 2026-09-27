@@ -2,6 +2,7 @@
 import { checkSubsystems } from "./health.js";
 import { getApiEndpointMetrics, getRecentRequests, getRecentBusinessEvents } from "./telemetry.js";
 import { getPerformanceMetrics } from "./cloudflare/workers.js";
+import { getD1Metrics, getKVMetrics, getDOMetrics } from "./d1Telemetry.js";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -99,7 +100,65 @@ export async function handleMonitoringRoute(request, env, ctx, path, url) {
     });
   }
 
-  // 7. Monitoring Overview
+  // 7. D1 Database Telemetry & Query Insights
+  if (path === "/api/monitoring/d1") {
+    const d1Data = await getD1Metrics(env);
+    return json({
+      success: true,
+      data: d1Data
+    });
+  }
+
+  // 8. Cloudflare KV Telemetry & Cache Activity
+  if (path === "/api/monitoring/kv") {
+    const kvData = await getKVMetrics(env);
+    return json({
+      success: true,
+      data: kvData
+    });
+  }
+
+  // 9. Durable Object (InventoryDO) Telemetry
+  if (path === "/api/monitoring/durable-objects") {
+    const doData = await getDOMetrics(env);
+    return json({
+      success: true,
+      data: doData
+    });
+  }
+
+  // 10. WebSocket Synchronization Telemetry
+  if (path === "/api/monitoring/websocket") {
+    const doData = await getDOMetrics(env);
+    return json({
+      success: true,
+      data: {
+        route: "/api/sync",
+        protocol: "wss",
+        role: "Real-time inventory synchronization across customer sessions and admin portal",
+        status: doData.status || "HEALTHY",
+        activeConnections: doData.activeConnections || 0,
+        totalConnectionsOpened: doData.totalConnectionsOpened || 0,
+        totalConnectionsClosed: doData.totalConnectionsClosed || 0,
+        totalMessagesSent: doData.totalMessagesSent || 0,
+        totalMessagesReceived: doData.totalMessagesReceived || 0,
+        connectionErrors: doData.connectionErrors || 0,
+        cloudflareProvided: {
+          network: "Cloudflare Edge Global WebSockets",
+          protocol: "RFC 6455",
+          hibernationAPI: "Supported",
+          connectionDuration: "Not available from current Cloudflare API"
+        },
+        applicationInstrumented: {
+          activeSessions: doData.activeConnections || 0,
+          messagesBroadcast: doData.totalMessagesSent || 0,
+          pingPongExchanges: doData.totalMessagesReceived || 0
+        }
+      }
+    });
+  }
+
+  // 11. Monitoring Overview
   if (path === "/api/monitoring/overview") {
     const range = url.searchParams.get("range") || "1h";
     const health = await checkSubsystems(env, request);

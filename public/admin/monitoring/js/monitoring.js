@@ -824,17 +824,219 @@ function renderCpuChart(timeline) {
   });
 }
 
-// Update switchTab to load performance when selected
+// -------------------------------------------------------------
+// Database & Storage Monitoring (Phase 4)
+// -------------------------------------------------------------
+
+const d1StatusBadge = document.getElementById("d1StatusBadge");
+const d1LatencyContributionText = document.getElementById("d1LatencyContributionText");
+const d1TotalQueries = document.getElementById("d1TotalQueries");
+const d1ReadsWritesSub = document.getElementById("d1ReadsWritesSub");
+const d1AvgQueryLatency = document.getElementById("d1AvgQueryLatency");
+const d1P95Latency = document.getElementById("d1P95Latency");
+const d1SlowQueriesCount = document.getElementById("d1SlowQueriesCount");
+const d1QueryErrors = document.getElementById("d1QueryErrors");
+const d1StorageInfo = document.getElementById("d1StorageInfo");
+const d1TablesTableBody = document.getElementById("d1TablesTableBody");
+const d1SlowQueriesTableBody = document.getElementById("d1SlowQueriesTableBody");
+const refreshDatabaseBtn = document.getElementById("refreshDatabaseBtn");
+
+const kvStatusBadge = document.getElementById("kvStatusBadge");
+const kvTotalOps = document.getElementById("kvTotalOps");
+const kvOpsBreakdown = document.getElementById("kvOpsBreakdown");
+const kvAvgLatency = document.getElementById("kvAvgLatency");
+const kvActiveCarts = document.getElementById("kvActiveCarts");
+const kvStorageInfo = document.getElementById("kvStorageInfo");
+
+async function loadDatabaseMetrics() {
+  try {
+    const [d1Res, kvRes] = await Promise.all([
+      fetch(`${API_BASE}/d1`),
+      fetch(`${API_BASE}/kv`)
+    ]);
+
+    if (d1Res.ok) {
+      const d1Json = await d1Res.json();
+      if (d1Json.success && d1Json.data) renderD1Metrics(d1Json.data);
+    }
+
+    if (kvRes.ok) {
+      const kvJson = await kvRes.json();
+      if (kvJson.success && kvJson.data) renderKVMetrics(kvJson.data);
+    }
+  } catch (err) {
+    console.error("Error loading database metrics:", err);
+  }
+}
+
+function renderD1Metrics(data) {
+  if (d1StatusBadge) {
+    d1StatusBadge.textContent = data.status;
+    d1StatusBadge.className = `status-badge ${data.status.toLowerCase()}`;
+  }
+
+  if (d1LatencyContributionText && data.latencyContribution) {
+    d1LatencyContributionText.innerHTML = `
+      <strong>Latency Contribution Analysis:</strong> ${data.latencyContribution.summary}
+    `;
+  }
+
+  if (d1TotalQueries && data.queryActivity) {
+    d1TotalQueries.textContent = Number(data.queryActivity.totalQueries).toLocaleString();
+    d1ReadsWritesSub.textContent = `Reads: ${Number(data.queryActivity.readsCount).toLocaleString()} | Writes: ${Number(data.queryActivity.writesCount).toLocaleString()} (Ratio: ${data.queryActivity.readWriteRatio}:1)`;
+    d1AvgQueryLatency.textContent = `${data.queryActivity.avgQueryLatencyMs} ms`;
+    d1P95Latency.textContent = `P95: ${data.queryActivity.p95QueryLatencyMs} ms | Probe: ${data.probeLatencyMs} ms`;
+    d1SlowQueriesCount.textContent = data.queryActivity.slowQueriesCount;
+    d1QueryErrors.textContent = data.queryActivity.queryErrorsCount;
+  }
+
+  if (d1StorageInfo && data.storage) {
+    d1StorageInfo.textContent = data.storage.storageUsed;
+  }
+
+  // Render Tables
+  if (d1TablesTableBody && data.tables) {
+    d1TablesTableBody.innerHTML = data.tables.map(t => `
+      <tr>
+        <td class="mono" style="font-weight: 700; color: var(--accent-blue);">${t.name}</td>
+        <td class="mono" style="font-weight: 700; color: var(--success);">${Number(t.rows).toLocaleString()} rows</td>
+        <td style="color: var(--text-muted); font-size: 0.82rem;">${t.role}</td>
+      </tr>
+    `).join("");
+  }
+
+  // Render Slow Queries Log
+  if (d1SlowQueriesTableBody && data.slowQueriesLog) {
+    if (data.slowQueriesLog.length === 0) {
+      d1SlowQueriesTableBody.innerHTML = `<tr><td colspan="4" class="empty-state">No slow queries recorded.</td></tr>`;
+    } else {
+      d1SlowQueriesTableBody.innerHTML = data.slowQueriesLog.map(q => {
+        const timeStr = q.timestamp ? new Date(q.timestamp).toLocaleTimeString() : "--";
+        const durColor = q.durationMs > 35 ? "var(--warning)" : "var(--text-main)";
+        return `
+          <tr>
+            <td>
+              <span style="background: rgba(255,255,255,0.06); color: ${q.type === 'WRITE' ? '#f59e0b' : '#3b82f6'}; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.72rem; font-weight: 700; font-family: var(--font-mono);">
+                ${q.type}
+              </span>
+            </td>
+            <td class="mono" style="font-size: 0.8rem; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+              ${q.query}
+            </td>
+            <td class="mono" style="color: ${durColor}; font-weight: 700;">${q.durationMs} ms</td>
+            <td style="color: var(--text-muted); font-size: 0.8rem;">${timeStr}</td>
+          </tr>
+        `;
+      }).join("");
+    }
+  }
+}
+
+function renderKVMetrics(data) {
+  if (kvStatusBadge) {
+    kvStatusBadge.textContent = data.status;
+    kvStatusBadge.className = `status-badge ${data.status.toLowerCase()}`;
+  }
+
+  if (kvTotalOps && data.operationVolume) {
+    kvTotalOps.textContent = Number(data.operationVolume.totalOperations).toLocaleString();
+    kvOpsBreakdown.textContent = `Reads: ${Number(data.operationVolume.reads).toLocaleString()} | Writes: ${Number(data.operationVolume.writes).toLocaleString()} | Deletes: ${Number(data.operationVolume.deletes).toLocaleString()}`;
+    kvAvgLatency.textContent = `${data.operationVolume.avgOperationLatencyMs} ms`;
+  }
+
+  if (kvActiveCarts && data.trends) {
+    kvActiveCarts.textContent = `~${data.trends.activeSessionCartsEstimate}`;
+  }
+
+  if (kvStorageInfo && data.storage) {
+    kvStorageInfo.textContent = data.storage.storageUsed;
+  }
+}
+
+// -------------------------------------------------------------
+// Real-Time & Durable Object Monitoring (Phase 4)
+// -------------------------------------------------------------
+
+const doRoleDisplay = document.getElementById("doRoleDisplay");
+const doStatusBadge = document.getElementById("doStatusBadge");
+const doActiveConnections = document.getElementById("doActiveConnections");
+const doConnectionsMeta = document.getElementById("doConnectionsMeta");
+const doMessagesSent = document.getElementById("doMessagesSent");
+const doMessagesReceived = document.getElementById("doMessagesReceived");
+const doTotalPurchases = document.getElementById("doTotalPurchases");
+const doPurchaseErrors = document.getElementById("doPurchaseErrors");
+const doAvgPurchaseLatency = document.getElementById("doAvgPurchaseLatency");
+const doConnectionErrors = document.getElementById("doConnectionErrors");
+const refreshRealtimeBtn = document.getElementById("refreshRealtimeBtn");
+
+const appActiveWs = document.getElementById("appActiveWs");
+const appOpenedWs = document.getElementById("appOpenedWs");
+const appClosedWs = document.getElementById("appClosedWs");
+const appBroadcasts = document.getElementById("appBroadcasts");
+const appPurchases = document.getElementById("appPurchases");
+
+async function loadRealtimeMetrics() {
+  try {
+    const res = await fetch(`${API_BASE}/durable-objects`);
+    if (!res.ok) return;
+    const json = await res.json();
+    if (json.success && json.data) {
+      renderRealtimeMetrics(json.data);
+    }
+  } catch (err) {
+    console.error("Error loading real-time metrics:", err);
+  }
+}
+
+function renderRealtimeMetrics(data) {
+  if (doRoleDisplay && data.role) doRoleDisplay.textContent = data.role;
+
+  if (doStatusBadge) {
+    doStatusBadge.textContent = data.status || "HEALTHY";
+    doStatusBadge.className = `status-badge ${(data.status || 'healthy').toLowerCase()}`;
+  }
+
+  if (doActiveConnections) doActiveConnections.textContent = data.activeConnections || 0;
+  if (doConnectionsMeta) doConnectionsMeta.textContent = `Opened: ${data.totalConnectionsOpened || 0} | Closed: ${data.totalConnectionsClosed || 0}`;
+
+  if (doMessagesSent) doMessagesSent.textContent = Number(data.totalMessagesSent || 0).toLocaleString();
+  if (doMessagesReceived) doMessagesReceived.textContent = `Received (Pings): ${Number(data.totalMessagesReceived || 0).toLocaleString()}`;
+
+  if (doTotalPurchases) doTotalPurchases.textContent = Number(data.totalPurchases || 0).toLocaleString();
+  if (doPurchaseErrors) doPurchaseErrors.textContent = `${data.purchaseErrors || 0} purchase failure${data.purchaseErrors === 1 ? '' : 's'}`;
+  if (doAvgPurchaseLatency) doAvgPurchaseLatency.textContent = data.avgPurchaseLatencyMs > 0 ? `${data.avgPurchaseLatencyMs} ms` : "-- ms";
+  if (doConnectionErrors) doConnectionErrors.textContent = data.connectionErrors || 0;
+
+  // Application Instrumented Table
+  if (appActiveWs) appActiveWs.textContent = data.activeConnections || 0;
+  if (appOpenedWs) appOpenedWs.textContent = data.totalConnectionsOpened || 0;
+  if (appClosedWs) appClosedWs.textContent = data.totalConnectionsClosed || 0;
+  if (appBroadcasts) appBroadcasts.textContent = data.totalMessagesSent || 0;
+  if (appPurchases) appPurchases.textContent = data.totalPurchases || 0;
+}
+
+// Event Listeners for DB & Realtime Refresh Buttons
+if (refreshDatabaseBtn) {
+  refreshDatabaseBtn.addEventListener("click", loadDatabaseMetrics);
+}
+if (refreshRealtimeBtn) {
+  refreshRealtimeBtn.addEventListener("click", loadRealtimeMetrics);
+}
+
+// Update switchTab to load Database and Real-Time tabs
 const origSwitchTab = window.switchTab;
 window.switchTab = function(tabName) {
   origSwitchTab(tabName);
-  if (tabName === "performance") {
-    loadPerformanceMetrics();
-  }
+  if (tabName === "performance") loadPerformanceMetrics();
+  else if (tabName === "database") loadDatabaseMetrics();
+  else if (tabName === "realtime") loadRealtimeMetrics();
 };
 
-// Also load performance on initial boot
+// Initial boot loader
 initMonitoring().then(() => {
   loadPerformanceMetrics();
+  loadDatabaseMetrics();
+  loadRealtimeMetrics();
 });
+
 
