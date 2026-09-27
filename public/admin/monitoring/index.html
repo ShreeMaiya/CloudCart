@@ -832,20 +832,115 @@
 
   <!-- 7. LOGS VIEW -->
   <section class="tab-view" id="view-logs">
+    <!-- Log KPI Summary Cards -->
+    <div class="metrics-grid" style="margin-bottom: 1.5rem;">
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Captured Logs</span>
+          <span class="metric-icon">📜</span>
+        </div>
+        <div class="metric-value" id="logCountTotal">--</div>
+        <div class="metric-sub" id="logTimeRangeSub">Active buffer (1h window)</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Informational (INFO)</span>
+          <span class="metric-icon">ℹ️</span>
+        </div>
+        <div class="metric-value" style="color: var(--accent-blue);" id="logCountInfo">--</div>
+        <div class="metric-sub">Standard operations & queries</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Warnings (WARN)</span>
+          <span class="metric-icon">⚠️</span>
+        </div>
+        <div class="metric-value" style="color: var(--warning);" id="logCountWarn">--</div>
+        <div class="metric-sub">Client 4xx & recoverable issues</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Errors (ERROR)</span>
+          <span class="metric-icon">🚨</span>
+        </div>
+        <div class="metric-value" style="color: var(--danger);" id="logCountError">--</div>
+        <div class="metric-sub" id="logErrorRatioSub">0.0% error ratio</div>
+      </div>
+    </div>
+
+    <!-- Logs Filter & Search Panel -->
     <div class="panel">
       <div class="panel-header">
         <div>
-          <h2 class="panel-title">📜 Centralized Logs & Error Center</h2>
-          <p class="panel-desc">Filter by service, severity, endpoint, or search terms</p>
+          <h2 class="panel-title">📜 Centralized Edge Logs & Error Center</h2>
+          <p class="panel-desc">Real-time structured telemetry stream across Cloudflare Worker, D1 SQLite, KV, and Durable Objects</p>
+        </div>
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+          <button class="btn-refresh" id="refreshLogsBtn">↻ Refresh Logs</button>
         </div>
       </div>
-      <div class="info-callout">
-        <span>ℹ️</span>
-        <div><strong>Phase 5 Logs:</strong> Structured ring-buffer telemetry and error inspection modal.</div>
+
+      <!-- Filters Toolbar -->
+      <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; margin-bottom: 1.25rem; background: rgba(0,0,0,0.2); padding: 0.85rem; border-radius: 8px; border: 1px solid var(--border-light);">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <span class="controls-label">Severity:</span>
+          <select class="select-control" id="logFilterLevel">
+            <option value="all">All Levels</option>
+            <option value="INFO">INFO Only</option>
+            <option value="WARN">WARN Only</option>
+            <option value="ERROR">ERROR Only</option>
+            <option value="errors_only">Errors & Warnings Only</option>
+          </select>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <span class="controls-label">Service:</span>
+          <select class="select-control" id="logFilterService">
+            <option value="all">All Architecture Services</option>
+            <option value="worker">CloudCart Worker</option>
+            <option value="d1">Worker / D1 Database</option>
+            <option value="kv">Worker / KV Cache</option>
+            <option value="do">InventoryDO Actor</option>
+            <option value="websocket">InventoryDO (WebSocket)</option>
+          </select>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex: 1; min-width: 200px;">
+          <span class="controls-label">Search:</span>
+          <input type="text" class="select-control" style="flex: 1; min-width: 160px;" placeholder="Search message, req ID, path, or JSON..." id="logSearchInput">
+        </div>
+
+        <button class="btn-refresh" style="font-size: 0.75rem; padding: 0.35rem 0.65rem;" id="logResetFiltersBtn">Reset Filters</button>
       </div>
-      <div class="empty-state">
-        <div class="empty-state-icon">📜</div>
-        <h3>Centralized logging configured for Phase 5</h3>
+
+      <!-- Live Logs Table -->
+      <div style="overflow-x: auto;">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 90px;">Level</th>
+              <th style="width: 110px;">Time</th>
+              <th style="width: 160px;">Service</th>
+              <th style="width: 160px;">Request</th>
+              <th style="width: 70px;">Status</th>
+              <th style="width: 80px;">Latency</th>
+              <th style="width: 120px;">Request ID</th>
+              <th>Message</th>
+              <th style="width: 80px; text-align: center;">Action</th>
+            </tr>
+          </thead>
+          <tbody id="logsTableBody">
+            <tr><td colspan="9" class="empty-state">Loading centralized edge logs...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--border-light); font-size: 0.8rem; color: var(--text-muted);">
+        <span id="logsPagingMeta">Showing 0 of 0 logs</span>
+        <span style="font-size: 0.75rem;">Click any row to inspect context, details, and stack traces</span>
       </div>
     </div>
   </section>
@@ -889,6 +984,82 @@
       </div>
     </div>
   </section>
+
+  <!-- Log Inspector Slide-out Drawer Modal -->
+  <div class="log-drawer-overlay" id="logDrawerOverlay">
+    <div class="log-drawer" id="logDrawer">
+      <div class="drawer-header">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <span class="log-level-badge info" id="drawerLevelBadge">INFO</span>
+          <h3 id="drawerTitle">Log Details</h3>
+        </div>
+        <button class="drawer-close-btn" id="drawerCloseBtn" title="Close">✕</button>
+      </div>
+
+      <div class="drawer-body">
+        <!-- Metadata Grid -->
+        <div class="drawer-meta-grid">
+          <div class="meta-field">
+            <span class="meta-field-label">Timestamp</span>
+            <span class="meta-field-value mono" id="drawerTimestamp">--</span>
+          </div>
+
+          <div class="meta-field">
+            <span class="meta-field-label">Request ID</span>
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <span class="meta-field-value mono" id="drawerRequestId">--</span>
+              <button class="copy-pill" id="drawerCopyReqId" title="Copy Request ID">📋 Copy</button>
+            </div>
+          </div>
+
+          <div class="meta-field">
+            <span class="meta-field-label">Service & Tier</span>
+            <span class="meta-field-value" id="drawerService">--</span>
+          </div>
+
+          <div class="meta-field">
+            <span class="meta-field-label">HTTP Method & Path</span>
+            <span class="meta-field-value mono" id="drawerEndpoint">--</span>
+          </div>
+
+          <div class="meta-field">
+            <span class="meta-field-label">Status Code</span>
+            <span class="meta-field-value" id="drawerStatus">--</span>
+          </div>
+
+          <div class="meta-field">
+            <span class="meta-field-label">Execution Duration</span>
+            <span class="meta-field-value mono" id="drawerDuration">-- ms</span>
+          </div>
+
+          <div class="meta-field" id="drawerBusinessEventWrap" style="grid-column: 1 / -1; display: none;">
+            <span class="meta-field-label">Correlated Business Event</span>
+            <span class="meta-field-value" style="color: var(--accent-cyan);" id="drawerBusinessEvent">--</span>
+          </div>
+        </div>
+
+        <!-- Log Message Section -->
+        <div>
+          <h4 style="font-size: 0.82rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.5rem; letter-spacing: 0.5px;">Log Message</h4>
+          <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.85rem 1rem; font-size: 0.9rem; line-height: 1.5;" id="drawerMessageText">
+            --
+          </div>
+        </div>
+
+        <!-- Structured Context & Details JSON -->
+        <div>
+          <h4 style="font-size: 0.82rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.5rem; letter-spacing: 0.5px;">Telemetry Context / JSON Payload</h4>
+          <pre class="json-box" id="drawerJsonDetails">{}</pre>
+        </div>
+
+        <!-- Stack Trace (conditionally displayed on errors) -->
+        <div id="drawerStackWrap" style="display: none;">
+          <h4 style="font-size: 0.82rem; text-transform: uppercase; color: var(--danger); margin-bottom: 0.5rem; letter-spacing: 0.5px;">Error / Exception Details</h4>
+          <pre class="json-box" style="color: #f87171; border-color: rgba(239, 68, 68, 0.3);" id="drawerStackTrace">No stack trace available</pre>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <script type="module" src="js/monitoring.js"></script>
 </body>

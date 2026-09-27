@@ -1,6 +1,8 @@
 // CloudCart Monitoring & Observability Frontend Controller
 
-const API_BASE = "/api/monitoring";
+const API_BASE = (window.location.origin.includes("localhost") || window.location.origin.includes("127.0.0.1") || window.location.protocol === "file:") && window.location.port !== "8787"
+  ? "http://127.0.0.1:8787/api/monitoring"
+  : "/api/monitoring";
 
 // Application State
 let activeTab = "overview";
@@ -1015,6 +1017,270 @@ function renderRealtimeMetrics(data) {
   if (appPurchases) appPurchases.textContent = data.totalPurchases || 0;
 }
 
+// -------------------------------------------------------------
+// Centralized Logs & Error Center (Phase 5)
+// -------------------------------------------------------------
+
+const logCountTotal = document.getElementById("logCountTotal");
+const logCountInfo = document.getElementById("logCountInfo");
+const logCountWarn = document.getElementById("logCountWarn");
+const logCountError = document.getElementById("logCountError");
+const logTimeRangeSub = document.getElementById("logTimeRangeSub");
+const logErrorRatioSub = document.getElementById("logErrorRatioSub");
+
+const logFilterLevel = document.getElementById("logFilterLevel");
+const logFilterService = document.getElementById("logFilterService");
+const logSearchInput = document.getElementById("logSearchInput");
+const logResetFiltersBtn = document.getElementById("logResetFiltersBtn");
+const refreshLogsBtn = document.getElementById("refreshLogsBtn");
+
+const logsTableBody = document.getElementById("logsTableBody");
+const logsPagingMeta = document.getElementById("logsPagingMeta");
+
+// Drawer elements
+const logDrawerOverlay = document.getElementById("logDrawerOverlay");
+const logDrawer = document.getElementById("logDrawer");
+const drawerCloseBtn = document.getElementById("drawerCloseBtn");
+const drawerLevelBadge = document.getElementById("drawerLevelBadge");
+const drawerTitle = document.getElementById("drawerTitle");
+const drawerTimestamp = document.getElementById("drawerTimestamp");
+const drawerRequestId = document.getElementById("drawerRequestId");
+const drawerCopyReqId = document.getElementById("drawerCopyReqId");
+const drawerService = document.getElementById("drawerService");
+const drawerEndpoint = document.getElementById("drawerEndpoint");
+const drawerStatus = document.getElementById("drawerStatus");
+const drawerDuration = document.getElementById("drawerDuration");
+const drawerBusinessEventWrap = document.getElementById("drawerBusinessEventWrap");
+const drawerBusinessEvent = document.getElementById("drawerBusinessEvent");
+const drawerMessageText = document.getElementById("drawerMessageText");
+const drawerJsonDetails = document.getElementById("drawerJsonDetails");
+const drawerStackWrap = document.getElementById("drawerStackWrap");
+const drawerStackTrace = document.getElementById("drawerStackTrace");
+
+let searchDebounceTimeout = null;
+
+async function loadLogs() {
+  if (!logsTableBody) return;
+
+  const level = logFilterLevel ? logFilterLevel.value : "all";
+  const service = logFilterService ? logFilterService.value : "all";
+  const search = logSearchInput ? encodeURIComponent(logSearchInput.value.trim()) : "";
+
+  try {
+    const res = await fetch(`${API_BASE}/logs?range=${activeRange}&level=${level}&service=${service}&search=${search}&limit=100`);
+    if (!res.ok) return;
+    const json = await res.json();
+    if (json.success && json.data) {
+      renderLogs(json.data);
+    }
+  } catch (err) {
+    console.error("Failed to load centralized logs:", err);
+  }
+}
+
+function renderLogs(data) {
+  // Update KPI Cards
+  if (logCountTotal) logCountTotal.textContent = Number(data.levelCounts.total).toLocaleString();
+  if (logCountInfo) logCountInfo.textContent = Number(data.levelCounts.INFO).toLocaleString();
+  if (logCountWarn) logCountWarn.textContent = Number(data.levelCounts.WARN).toLocaleString();
+  if (logCountError) logCountError.textContent = Number(data.levelCounts.ERROR).toLocaleString();
+  if (logTimeRangeSub) logTimeRangeSub.textContent = `Active buffer (${data.timeRange} window)`;
+
+  const total = data.levelCounts.total || 1;
+  const errorRate = ((data.levelCounts.ERROR / total) * 100).toFixed(1);
+  if (logErrorRatioSub) logErrorRatioSub.textContent = `${errorRate}% error ratio`;
+
+  if (logsPagingMeta) {
+    logsPagingMeta.textContent = `Showing ${data.logs.length} of ${data.totalLogs} logs (${data.timeRange} window)`;
+  }
+
+  if (!logsTableBody) return;
+
+  if (data.logs.length === 0) {
+    logsTableBody.innerHTML = `<tr><td colspan="9" class="empty-state">No operational logs match current filters.</td></tr>`;
+    return;
+  }
+
+  logsTableBody.innerHTML = data.logs.map(log => {
+    const timeStr = log.timestamp ? new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : "--";
+    const levelClass = (log.level || 'info').toLowerCase();
+    const isError = log.level === "ERROR";
+    const statusClass = log.status >= 500 ? "failed" : log.status >= 400 ? "degraded" : "healthy";
+    const methodColor = log.method === "POST" ? "var(--accent-blue)" : log.method === "PUT" ? "var(--warning)" : log.method === "DELETE" ? "var(--danger)" : "var(--accent-cyan)";
+
+    return `
+      <tr class="log-row-interactive ${isError ? 'log-row-error' : ''}" data-log-id="${log.id}">
+        <td>
+          <span class="log-level-badge ${levelClass}">${log.level}</span>
+        </td>
+        <td class="mono" style="font-size: 0.78rem; color: var(--text-muted);">${timeStr}</td>
+        <td style="font-size: 0.8rem; font-weight: 500;">${log.service}</td>
+        <td>
+          <span style="font-weight: 700; color: ${methodColor}; font-size: 0.75rem; margin-right: 0.35rem;">${log.method}</span>
+          <span class="mono" style="font-size: 0.78rem;">${log.endpoint}</span>
+        </td>
+        <td>
+          <span class="status-badge ${statusClass}" style="font-size: 0.7rem; padding: 0.15rem 0.45rem;">${log.status}</span>
+        </td>
+        <td class="mono" style="font-size: 0.78rem;">${log.durationMs} ms</td>
+        <td>
+          <span class="mono" style="font-size: 0.75rem; color: var(--accent-blue);">${log.requestId}</span>
+        </td>
+        <td style="font-size: 0.82rem; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${log.message}">
+          ${log.businessEvent ? `<span style="background: rgba(6,182,212,0.15); color: #22d3ee; padding: 0.1rem 0.3rem; border-radius: 4px; font-size: 0.7rem; font-weight: 700; margin-right: 0.35rem;">${log.businessEvent}</span>` : ''}
+          ${log.message}
+        </td>
+        <td style="text-align: center;">
+          <button class="btn-inspect" data-inspect-id="${log.id}">Inspect</button>
+        </td>
+      </tr>
+    `;
+  }).join("");
+
+  // Attach event listeners for row click and inspect button
+  logsTableBody.querySelectorAll(".log-row-interactive").forEach(row => {
+    row.addEventListener("click", () => {
+      const logId = row.dataset.logId;
+      if (logId) openLogDetail(logId);
+    });
+  });
+
+  logsTableBody.querySelectorAll(".btn-inspect").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const logId = btn.dataset.inspectId;
+      if (logId) openLogDetail(logId);
+    });
+  });
+}
+
+async function openLogDetail(logId) {
+  try {
+    const res = await fetch(`${API_BASE}/logs/${logId}`);
+    if (!res.ok) return;
+    const json = await res.json();
+    if (!json.success || !json.data) return;
+
+    const log = json.data;
+
+    if (drawerLevelBadge) {
+      drawerLevelBadge.textContent = log.level;
+      drawerLevelBadge.className = `log-level-badge ${(log.level || 'info').toLowerCase()}`;
+    }
+
+    if (drawerTitle) drawerTitle.textContent = `Log #${log.id}`;
+    if (drawerTimestamp) drawerTimestamp.textContent = log.timestamp ? `${new Date(log.timestamp).toLocaleDateString()} ${new Date(log.timestamp).toLocaleTimeString()}` : "--";
+    if (drawerRequestId) drawerRequestId.textContent = log.requestId || "--";
+    if (drawerService) drawerService.textContent = log.service || "--";
+    if (drawerEndpoint) drawerEndpoint.textContent = `${log.method} ${log.endpoint}`;
+    
+    if (drawerStatus) {
+      const statusClass = log.status >= 500 ? "failed" : log.status >= 400 ? "degraded" : "healthy";
+      drawerStatus.innerHTML = `<span class="status-badge ${statusClass}">${log.status} ${(log.statusClass || '').toUpperCase()}</span>`;
+    }
+
+    if (drawerDuration) drawerDuration.textContent = `${log.durationMs} ms`;
+
+    if (drawerBusinessEventWrap && drawerBusinessEvent) {
+      if (log.businessEvent) {
+        drawerBusinessEvent.textContent = log.businessEvent;
+        drawerBusinessEventWrap.style.display = "flex";
+      } else {
+        drawerBusinessEventWrap.style.display = "none";
+      }
+    }
+
+    if (drawerMessageText) drawerMessageText.textContent = log.message || "No message body";
+
+    if (drawerJsonDetails) {
+      drawerJsonDetails.textContent = JSON.stringify(log.details || {
+        id: log.id,
+        timestamp: log.timestamp,
+        level: log.level,
+        service: log.service,
+        requestId: log.requestId,
+        endpoint: log.endpoint,
+        durationMs: log.durationMs
+      }, null, 2);
+    }
+
+    if (drawerStackWrap && drawerStackTrace) {
+      if (log.stack) {
+        drawerStackTrace.textContent = log.stack;
+        drawerStackWrap.style.display = "block";
+      } else {
+        drawerStackWrap.style.display = "none";
+      }
+    }
+
+    if (logDrawerOverlay) {
+      logDrawerOverlay.classList.add("open");
+    }
+  } catch (err) {
+    console.error("Failed to fetch log detail:", err);
+  }
+}
+
+function closeLogDetail() {
+  if (logDrawerOverlay) {
+    logDrawerOverlay.classList.remove("open");
+  }
+}
+
+// Logs Event Listeners
+if (refreshLogsBtn) {
+  refreshLogsBtn.addEventListener("click", loadLogs);
+}
+
+if (logFilterLevel) {
+  logFilterLevel.addEventListener("change", loadLogs);
+}
+
+if (logFilterService) {
+  logFilterService.addEventListener("change", loadLogs);
+}
+
+if (logSearchInput) {
+  logSearchInput.addEventListener("input", () => {
+    clearTimeout(searchDebounceTimeout);
+    searchDebounceTimeout = setTimeout(loadLogs, 250);
+  });
+}
+
+if (logResetFiltersBtn) {
+  logResetFiltersBtn.addEventListener("click", () => {
+    if (logFilterLevel) logFilterLevel.value = "all";
+    if (logFilterService) logFilterService.value = "all";
+    if (logSearchInput) logSearchInput.value = "";
+    loadLogs();
+  });
+}
+
+if (drawerCloseBtn) {
+  drawerCloseBtn.addEventListener("click", closeLogDetail);
+}
+
+if (logDrawerOverlay) {
+  logDrawerOverlay.addEventListener("click", (e) => {
+    if (e.target === logDrawerOverlay) {
+      closeLogDetail();
+    }
+  });
+}
+
+if (drawerCopyReqId) {
+  drawerCopyReqId.addEventListener("click", () => {
+    if (drawerRequestId && drawerRequestId.textContent) {
+      navigator.clipboard.writeText(drawerRequestId.textContent);
+      const originalText = drawerCopyReqId.textContent;
+      drawerCopyReqId.textContent = "✓ Copied!";
+      setTimeout(() => {
+        drawerCopyReqId.textContent = originalText;
+      }, 1500);
+    }
+  });
+}
+
 // Event Listeners for DB & Realtime Refresh Buttons
 if (refreshDatabaseBtn) {
   refreshDatabaseBtn.addEventListener("click", loadDatabaseMetrics);
@@ -1023,13 +1289,14 @@ if (refreshRealtimeBtn) {
   refreshRealtimeBtn.addEventListener("click", loadRealtimeMetrics);
 }
 
-// Update switchTab to load Database and Real-Time tabs
+// Update switchTab to load Database, Real-Time, and Logs tabs
 const origSwitchTab = window.switchTab;
 window.switchTab = function(tabName) {
   origSwitchTab(tabName);
   if (tabName === "performance") loadPerformanceMetrics();
   else if (tabName === "database") loadDatabaseMetrics();
   else if (tabName === "realtime") loadRealtimeMetrics();
+  else if (tabName === "logs") loadLogs();
 };
 
 // Initial boot loader
@@ -1037,6 +1304,8 @@ initMonitoring().then(() => {
   loadPerformanceMetrics();
   loadDatabaseMetrics();
   loadRealtimeMetrics();
+  loadLogs();
 });
+
 
 

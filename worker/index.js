@@ -1,6 +1,7 @@
 import { InventoryDO, InventorySyncDO } from "./InventoryDO.js";
 import { handleMonitoringRoute } from "./monitoring/routes.js";
 import { recordRequest } from "./monitoring/telemetry.js";
+import { recordLog } from "./monitoring/logManager.js";
 
 export { InventoryDO, InventorySyncDO };
 
@@ -76,6 +77,35 @@ export default {
         service,
         error: errorText,
         businessEvent
+      });
+
+      let logMessage = `${request.method} ${path} returned ${response.status} (${Math.round(durationMs)}ms)`;
+      if (businessEvent === "PRODUCT_CREATED") logMessage = "Product created successfully in D1 database";
+      else if (businessEvent === "PRODUCT_UPDATED") logMessage = "Product updated in D1 and broadcast via DO";
+      else if (businessEvent === "PRODUCT_DELETED") logMessage = "Product deleted from D1 and broadcast via DO";
+      else if (businessEvent === "CHECKOUT_SUCCEEDED") logMessage = "Atomic multi-item checkout transaction completed successfully";
+      else if (businessEvent === "CHECKOUT_FAILED") logMessage = "Checkout failed: insufficient stock or validation error";
+      else if (businessEvent === "FEEDBACK_SUBMITTED") logMessage = "Customer feedback submitted and stored in D1";
+      else if (response.status >= 500) logMessage = `Server error processing ${request.method} ${path}: ${errorText || "Internal error"}`;
+      else if (response.status === 404) logMessage = `Resource not found: ${request.method} ${path}`;
+      else if (response.status === 400) logMessage = `Bad request on ${request.method} ${path}`;
+
+      recordLog({
+        requestId,
+        endpoint: path,
+        method: request.method,
+        status: response.status,
+        durationMs,
+        service,
+        message: logMessage,
+        details: {
+          path,
+          method: request.method,
+          status: response.status,
+          durationMs: Math.round(durationMs)
+        },
+        businessEvent,
+        stack: errorText
       });
     }
 

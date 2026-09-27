@@ -3,6 +3,7 @@ import { checkSubsystems } from "./health.js";
 import { getApiEndpointMetrics, getRecentRequests, getRecentBusinessEvents } from "./telemetry.js";
 import { getPerformanceMetrics } from "./cloudflare/workers.js";
 import { getD1Metrics, getKVMetrics, getDOMetrics } from "./d1Telemetry.js";
+import { getLogs, getLogById } from "./logManager.js";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -201,6 +202,45 @@ export async function handleMonitoringRoute(request, env, ctx, path, url) {
         services: health.services,
         isDemoData: false
       }
+    });
+  }
+
+  // 12. Centralized Logs & Error Center Route
+  if (path === "/api/monitoring/logs") {
+    const range = url.searchParams.get("range") || "1h";
+    const level = url.searchParams.get("level") || "all";
+    const service = url.searchParams.get("service") || "all";
+    const endpoint = url.searchParams.get("endpoint") || "all";
+    const search = url.searchParams.get("search") || "";
+    const limit = Math.min(parseInt(url.searchParams.get("limit") || "50", 10), 200);
+    const offset = parseInt(url.searchParams.get("offset") || "0", 10);
+
+    const logResults = getLogs({
+      range,
+      level,
+      service,
+      endpoint,
+      search,
+      limit,
+      offset
+    });
+
+    return json({
+      success: true,
+      data: logResults
+    });
+  }
+
+  // 13. Single Log Detail Route
+  if (path.startsWith("/api/monitoring/logs/")) {
+    const logId = path.split("/")[4];
+    const logEntry = getLogById(logId);
+    if (!logEntry) {
+      return json({ success: false, error: "Log entry not found" }, 404);
+    }
+    return json({
+      success: true,
+      data: logEntry
     });
   }
 
