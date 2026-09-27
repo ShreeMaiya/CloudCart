@@ -70,7 +70,7 @@ All monitoring endpoints are served under `/api/monitoring/*` and require no cli
 | `/api/monitoring/realtime` | `GET` | — | Durable Object live WebSocket client count, connection lifecycle, and purchase transaction metrics. |
 | `/api/monitoring/logs` | `GET` | `level=...`, `service=...`, `search=...`, `limit=...` | Centralized structured log buffer with automatic credential/PII sanitization. |
 | `/api/monitoring/traces` | `GET` | `traceId=...`, `minDuration=...` | Distributed trace waterfall with real measured spans and universal `X-Request-ID` correlation. |
-| `/api/monitoring/deployments` | `GET` | — | GitHub Actions pipeline status, commit metadata, and e-commerce business correlation metrics. |
+| `/api/monitoring/deployments` | `GET` | — | Backend endpoint returning deployment metadata (if CI/CD secrets configured) and live D1 business correlation metrics. |
 
 ---
 
