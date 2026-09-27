@@ -1297,7 +1297,303 @@ window.switchTab = function(tabName) {
   else if (tabName === "database") loadDatabaseMetrics();
   else if (tabName === "realtime") loadRealtimeMetrics();
   else if (tabName === "logs") loadLogs();
+  else if (tabName === "traces") loadTraces();
 };
+
+// -------------------------------------------------------------
+// Distributed Tracing & Request Correlation (Phase 6)
+// -------------------------------------------------------------
+
+const traceCountTotal = document.getElementById("traceCountTotal");
+const traceAvgLatency = document.getElementById("traceAvgLatency");
+const traceSlowCount = document.getElementById("traceSlowCount");
+const traceMultiHopCount = document.getElementById("traceMultiHopCount");
+const traceTimeRangeSub = document.getElementById("traceTimeRangeSub");
+
+const traceFilterEndpoint = document.getElementById("traceFilterEndpoint");
+const traceFilterStatus = document.getElementById("traceFilterStatus");
+const traceFilterMinDur = document.getElementById("traceFilterMinDur");
+const traceSearchInput = document.getElementById("traceSearchInput");
+const traceResetFiltersBtn = document.getElementById("traceResetFiltersBtn");
+const refreshTracesBtn = document.getElementById("refreshTracesBtn");
+const tracesTableBody = document.getElementById("tracesTableBody");
+
+const traceWaterfallSection = document.getElementById("traceWaterfallSection");
+const wfStatusBadge = document.getElementById("wfStatusBadge");
+const wfRouteTitle = document.getElementById("wfRouteTitle");
+const wfTraceId = document.getElementById("wfTraceId");
+const wfCopyBtn = document.getElementById("wfCopyBtn");
+const wfMetaDetails = document.getElementById("wfMetaDetails");
+const wfRuler25 = document.getElementById("wfRuler25");
+const wfRuler50 = document.getElementById("wfRuler50");
+const wfRuler75 = document.getElementById("wfRuler75");
+const wfRuler100 = document.getElementById("wfRuler100");
+const waterfallSpansList = document.getElementById("waterfallSpansList");
+const wfSpanDetailBox = document.getElementById("wfSpanDetailBox");
+const wfDetailSvcTag = document.getElementById("wfDetailSvcTag");
+const wfDetailSpanName = document.getElementById("wfDetailSpanName");
+const wfDetailJson = document.getElementById("wfDetailJson");
+
+let traceSearchDebounce = null;
+let currentActiveTraceId = null;
+
+async function loadTraces() {
+  if (!tracesTableBody) return;
+
+  const endpoint = traceFilterEndpoint ? traceFilterEndpoint.value : "all";
+  const status = traceFilterStatus ? traceFilterStatus.value : "all";
+  const minDur = traceFilterMinDur ? traceFilterMinDur.value : "0";
+  const search = traceSearchInput ? encodeURIComponent(traceSearchInput.value.trim()) : "";
+
+  try {
+    const res = await fetch(`${API_BASE}/traces?range=${activeRange}&endpoint=${endpoint}&status=${status}&minDuration=${minDur}&search=${search}&limit=50`);
+    if (!res.ok) return;
+    const json = await res.json();
+    if (json.success && json.data) {
+      renderTraces(json.data);
+    }
+  } catch (err) {
+    console.error("Failed to load distributed traces:", err);
+  }
+}
+
+function renderTraces(data) {
+  // Update KPI Cards
+  if (traceCountTotal) traceCountTotal.textContent = Number(data.summary.totalTraces).toLocaleString();
+  if (traceAvgLatency) traceAvgLatency.textContent = `${data.summary.avgDurationMs} ms`;
+  if (traceSlowCount) traceSlowCount.textContent = Number(data.summary.slowTracesCount).toLocaleString();
+  if (traceMultiHopCount) traceMultiHopCount.textContent = "100%";
+  if (traceTimeRangeSub) traceTimeRangeSub.textContent = `End-to-end correlated requests (${data.timeRange} window)`;
+
+  if (!tracesTableBody) return;
+
+  if (data.traces.length === 0) {
+    tracesTableBody.innerHTML = `<tr><td colspan="8" class="empty-state">No traces match current filters.</td></tr>`;
+    return;
+  }
+
+  tracesTableBody.innerHTML = data.traces.map(t => {
+    const timeStr = t.timestamp ? new Date(t.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : "--";
+    const statusClass = t.status >= 500 ? "failed" : t.status >= 400 ? "degraded" : "healthy";
+    const methodColor = t.method === "POST" ? "var(--accent-blue)" : t.method === "PUT" ? "var(--warning)" : t.method === "DELETE" ? "var(--danger)" : "var(--accent-cyan)";
+    const durColor = t.totalDurationMs > 35 ? "var(--warning)" : "var(--text-main)";
+    const isSelected = t.traceId === currentActiveTraceId;
+
+    return `
+      <tr class="log-row-interactive ${isSelected ? 'trace-row-selected' : ''}" data-trace-id="${t.traceId}">
+        <td>
+          <span class="mono" style="font-size: 0.8rem; color: var(--accent-blue); font-weight: 700;">${t.traceId}</span>
+        </td>
+        <td>
+          <span style="font-weight: 700; color: ${methodColor}; font-size: 0.75rem; margin-right: 0.35rem;">${t.method}</span>
+          <span class="mono" style="font-size: 0.78rem;">${t.endpoint}</span>
+        </td>
+        <td>
+          <span class="status-badge ${statusClass}" style="font-size: 0.7rem; padding: 0.15rem 0.45rem;">${t.status}</span>
+        </td>
+        <td class="mono" style="color: ${durColor}; font-weight: 700;">${t.totalDurationMs} ms</td>
+        <td>
+          <span style="background: rgba(255,255,255,0.06); padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.75rem; font-family: var(--font-mono);">
+            ${t.hopCount} spans
+          </span>
+        </td>
+        <td>
+          <span style="background: rgba(59,130,246,0.12); color: #93c5fd; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.72rem; font-family: var(--font-mono); font-weight: 700;">
+            ${t.colo}
+          </span>
+        </td>
+        <td style="color: var(--text-muted); font-size: 0.8rem;">${timeStr}</td>
+        <td style="text-align: center;">
+          <button class="btn-inspect" data-view-trace="${t.traceId}">View Waterfall</button>
+        </td>
+      </tr>
+    `;
+  }).join("");
+
+  // Attach event handlers
+  tracesTableBody.querySelectorAll(".log-row-interactive").forEach(row => {
+    row.addEventListener("click", () => {
+      const traceId = row.dataset.traceId;
+      if (traceId) openTraceWaterfall(traceId);
+    });
+  });
+
+  tracesTableBody.querySelectorAll(".btn-inspect").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const traceId = btn.dataset.viewTrace;
+      if (traceId) openTraceWaterfall(traceId);
+    });
+  });
+
+  // If no trace is open yet and traces exist, open the first one by default!
+  if (!currentActiveTraceId && data.traces.length > 0) {
+    openTraceWaterfall(data.traces[0].traceId);
+  }
+}
+
+async function openTraceWaterfall(traceId) {
+  currentActiveTraceId = traceId;
+
+  // Highlight row in table
+  if (tracesTableBody) {
+    tracesTableBody.querySelectorAll("tr").forEach(tr => {
+      tr.classList.toggle("trace-row-selected", tr.dataset.traceId === traceId);
+    });
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/traces/${traceId}`);
+    if (!res.ok) return;
+    const json = await res.json();
+    if (json.success && json.data) {
+      renderWaterfall(json.data);
+    }
+  } catch (err) {
+    console.error("Failed to load trace waterfall:", err);
+  }
+}
+
+function renderWaterfall(trace) {
+  if (!traceWaterfallSection) return;
+  traceWaterfallSection.style.display = "flex";
+
+  const statusClass = trace.status >= 500 ? "failed" : trace.status >= 400 ? "degraded" : "healthy";
+
+  if (wfStatusBadge) {
+    wfStatusBadge.textContent = `${trace.status} ${(trace.statusClass || '').toUpperCase()}`;
+    wfStatusBadge.className = `status-badge ${statusClass}`;
+  }
+
+  if (wfRouteTitle) wfRouteTitle.textContent = `${trace.method} ${trace.endpoint}`;
+  if (wfTraceId) wfTraceId.textContent = trace.traceId;
+
+  if (wfMetaDetails) {
+    wfMetaDetails.textContent = `Cloudflare Colo: ${trace.colo} | Total Duration: ${trace.totalDurationMs} ms | ${trace.spans.length} hop-by-hop execution spans`;
+  }
+
+  // Update timeline ruler
+  const total = trace.totalDurationMs > 0 ? trace.totalDurationMs : 10;
+  if (wfRuler25) wfRuler25.textContent = `${(total * 0.25).toFixed(1)} ms`;
+  if (wfRuler50) wfRuler50.textContent = `${(total * 0.50).toFixed(1)} ms`;
+  if (wfRuler75) wfRuler75.textContent = `${(total * 0.75).toFixed(1)} ms`;
+  if (wfRuler100) wfRuler100.textContent = `${total.toFixed(1)} ms`;
+
+  // Render spans
+  if (waterfallSpansList) {
+    waterfallSpansList.innerHTML = trace.spans.map((span, index) => {
+      let svcClass = "svc-worker";
+      const sLower = span.service.toLowerCase();
+      if (sLower.includes("pages")) svcClass = "svc-pages";
+      else if (sLower.includes("d1")) svcClass = "svc-d1";
+      else if (sLower.includes("do") || sLower.includes("inventorydo")) svcClass = "svc-do";
+      else if (sLower.includes("kv")) svcClass = "svc-kv";
+
+      const isError = span.status === "ERROR";
+      const offsetPercent = Math.min(95, Math.max(0, (span.startOffsetMs / total) * 100));
+      const widthPercent = Math.min(100 - offsetPercent, Math.max(2.5, (span.durationMs / total) * 100));
+
+      return `
+        <div class="waterfall-span-row ${index === 0 ? 'selected' : ''}" data-span-idx="${index}">
+          <div class="span-info-col">
+            <span class="service-tag ${svcClass}">${span.service}</span>
+            <span class="span-title" title="${span.name}">${span.name}</span>
+          </div>
+
+          <div class="span-track-col">
+            <div class="span-bar ${svcClass} ${isError ? 'error' : ''}" style="left: ${offsetPercent.toFixed(1)}%; width: ${widthPercent.toFixed(1)}%;">
+              <span class="span-timing-label">${span.durationMs} ms</span>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    // Span row click handlers
+    waterfallSpansList.querySelectorAll(".waterfall-span-row").forEach(row => {
+      row.addEventListener("click", () => {
+        waterfallSpansList.querySelectorAll(".waterfall-span-row").forEach(r => r.classList.remove("selected"));
+        row.classList.add("selected");
+        const idx = parseInt(row.dataset.spanIdx, 10);
+        showSpanDetail(trace.spans[idx], total);
+      });
+    });
+
+    // Show first span by default
+    if (trace.spans.length > 0) {
+      showSpanDetail(trace.spans[0], total);
+    }
+  }
+}
+
+function showSpanDetail(span, totalDurationMs) {
+  if (!span) return;
+
+  let svcClass = "svc-worker";
+  const sLower = span.service.toLowerCase();
+  if (sLower.includes("pages")) svcClass = "svc-pages";
+  else if (sLower.includes("d1")) svcClass = "svc-d1";
+  else if (sLower.includes("do") || sLower.includes("inventorydo")) svcClass = "svc-do";
+  else if (sLower.includes("kv")) svcClass = "svc-kv";
+
+  if (wfDetailSvcTag) {
+    wfDetailSvcTag.textContent = span.service;
+    wfDetailSvcTag.className = `service-tag ${svcClass}`;
+  }
+
+  const pct = totalDurationMs > 0 ? ((span.durationMs / totalDurationMs) * 100).toFixed(1) : "0";
+  if (wfDetailSpanName) {
+    wfDetailSpanName.textContent = `${span.name} — ${span.durationMs} ms (${pct}% of roundtrip)`;
+  }
+
+  if (wfDetailJson) {
+    wfDetailJson.textContent = JSON.stringify({
+      spanId: span.id,
+      name: span.name,
+      service: span.service,
+      startOffsetMs: `${span.startOffsetMs} ms`,
+      durationMs: `${span.durationMs} ms`,
+      relativeShare: `${pct}%`,
+      status: span.status,
+      executionMetadata: span.details || {}
+    }, null, 2);
+  }
+}
+
+// Waterfall Copy Button
+if (wfCopyBtn) {
+  wfCopyBtn.addEventListener("click", () => {
+    if (wfTraceId && wfTraceId.textContent) {
+      navigator.clipboard.writeText(wfTraceId.textContent);
+      const orig = wfCopyBtn.textContent;
+      wfCopyBtn.textContent = "✓ Copied!";
+      setTimeout(() => { wfCopyBtn.textContent = orig; }, 1500);
+    }
+  });
+}
+
+// Traces Filter Listeners
+if (refreshTracesBtn) refreshTracesBtn.addEventListener("click", loadTraces);
+if (traceFilterEndpoint) traceFilterEndpoint.addEventListener("change", loadTraces);
+if (traceFilterStatus) traceFilterStatus.addEventListener("change", loadTraces);
+if (traceFilterMinDur) traceFilterMinDur.addEventListener("change", loadTraces);
+
+if (traceSearchInput) {
+  traceSearchInput.addEventListener("input", () => {
+    clearTimeout(traceSearchDebounce);
+    traceSearchDebounce = setTimeout(loadTraces, 250);
+  });
+}
+
+if (traceResetFiltersBtn) {
+  traceResetFiltersBtn.addEventListener("click", () => {
+    if (traceFilterEndpoint) traceFilterEndpoint.value = "all";
+    if (traceFilterStatus) traceFilterStatus.value = "all";
+    if (traceFilterMinDur) traceFilterMinDur.value = "0";
+    if (traceSearchInput) traceSearchInput.value = "";
+    loadTraces();
+  });
+}
 
 // Initial boot loader
 initMonitoring().then(() => {
@@ -1305,7 +1601,9 @@ initMonitoring().then(() => {
   loadDatabaseMetrics();
   loadRealtimeMetrics();
   loadLogs();
+  loadTraces();
 });
+
 
 
 

@@ -4,6 +4,7 @@ import { getApiEndpointMetrics, getRecentRequests, getRecentBusinessEvents } fro
 import { getPerformanceMetrics } from "./cloudflare/workers.js";
 import { getD1Metrics, getKVMetrics, getDOMetrics } from "./d1Telemetry.js";
 import { getLogs, getLogById } from "./logManager.js";
+import { getTraces, getTraceById } from "./tracing.js";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -241,6 +242,47 @@ export async function handleMonitoringRoute(request, env, ctx, path, url) {
     return json({
       success: true,
       data: logEntry
+    });
+  }
+
+  // 14. Distributed Tracing & Request Waterfall Route
+  if (path === "/api/monitoring/traces") {
+    const range = url.searchParams.get("range") || "1h";
+    const endpoint = url.searchParams.get("endpoint") || "all";
+    const status = url.searchParams.get("status") || "all";
+    const service = url.searchParams.get("service") || "all";
+    const minDuration = parseFloat(url.searchParams.get("minDuration") || "0");
+    const search = url.searchParams.get("search") || "";
+    const limit = Math.min(parseInt(url.searchParams.get("limit") || "50", 10), 100);
+    const offset = parseInt(url.searchParams.get("offset") || "0", 10);
+
+    const traceResults = getTraces({
+      range,
+      endpoint,
+      status,
+      service,
+      minDuration,
+      search,
+      limit,
+      offset
+    });
+
+    return json({
+      success: true,
+      data: traceResults
+    });
+  }
+
+  // 15. Single Trace Detail with Waterfall Spans
+  if (path.startsWith("/api/monitoring/traces/")) {
+    const traceId = path.split("/")[4];
+    const traceEntry = getTraceById(traceId);
+    if (!traceEntry) {
+      return json({ success: false, error: "Trace not found" }, 404);
+    }
+    return json({
+      success: true,
+      data: traceEntry
     });
   }
 

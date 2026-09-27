@@ -2,6 +2,7 @@ import { InventoryDO, InventorySyncDO } from "./InventoryDO.js";
 import { handleMonitoringRoute } from "./monitoring/routes.js";
 import { recordRequest } from "./monitoring/telemetry.js";
 import { recordLog } from "./monitoring/logManager.js";
+import { recordTrace } from "./monitoring/tracing.js";
 
 export { InventoryDO, InventorySyncDO };
 
@@ -106,6 +107,16 @@ export default {
         },
         businessEvent,
         stack: errorText
+      });
+
+      recordTrace({
+        traceId: requestId,
+        endpoint: path,
+        method: request.method,
+        status: response.status,
+        totalDurationMs: durationMs,
+        service,
+        colo: request.cf?.colo || "Local Dev"
       });
     }
 

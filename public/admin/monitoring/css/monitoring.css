@@ -871,3 +871,153 @@ tr:hover {
   color: #fff;
 }
 
+/* =========================================================
+   Distributed Tracing & Waterfall Visualizer (Phase 6)
+   ========================================================= */
+
+.trace-row-selected {
+  background: rgba(59, 130, 246, 0.14) !important;
+  border-left: 3px solid var(--accent-blue);
+}
+
+.waterfall-panel {
+  background: #0d1527;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-top: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.waterfall-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.waterfall-ruler {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.35rem 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  border-bottom: 1px dashed var(--border-color);
+  margin-bottom: 0.75rem;
+}
+
+.waterfall-spans-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.waterfall-span-row {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.waterfall-span-row:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--border-color);
+}
+
+.waterfall-span-row.selected {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: var(--accent-blue);
+}
+
+.span-info-col {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  overflow: hidden;
+}
+
+.service-tag {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.svc-pages { background: rgba(249, 115, 22, 0.15); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.3); }
+.svc-worker { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
+.svc-d1 { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+.svc-do { background: rgba(6, 182, 212, 0.15); color: #22d3ee; border: 1px solid rgba(6, 182, 212, 0.3); }
+.svc-kv { background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); }
+
+.span-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.span-track-col {
+  position: relative;
+  height: 24px;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+}
+
+.span-bar {
+  position: absolute;
+  height: 14px;
+  border-radius: 3px;
+  min-width: 4px;
+  display: flex;
+  align-items: center;
+  transition: all 0.3s ease;
+}
+
+.span-bar.svc-pages { background: linear-gradient(90deg, #ea580c, #f97316); }
+.span-bar.svc-worker { background: linear-gradient(90deg, #2563eb, #3b82f6); }
+.span-bar.svc-d1 { background: linear-gradient(90deg, #059669, #10b981); }
+.span-bar.svc-do { background: linear-gradient(90deg, #0891b2, #06b6d4); }
+.span-bar.svc-kv { background: linear-gradient(90deg, #9333ea, #a855f7); }
+
+.span-bar.error {
+  background: linear-gradient(90deg, #dc2626, #ef4444) !important;
+}
+
+.span-timing-label {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: #fff;
+  font-weight: 700;
+  margin-left: 6px;
+  white-space: nowrap;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+.span-detail-drawer {
+  background: #090d16;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  margin-top: 0.5rem;
+  font-size: 0.82rem;
+}
+
+
