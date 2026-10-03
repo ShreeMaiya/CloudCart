@@ -224,7 +224,7 @@ export async function checkSubsystems(env, request) {
     id: "pages_functions",
     name: "Pages Functions",
     tier: "Edge Interceptor",
-    description: "Zero-latency IPC proxy routing /api/* to Worker via Service Binding",
+    description: "Direct Worker-to-Worker communication through a Cloudflare Service Binding without an external HTTP network hop",
     status: "UNKNOWN",
     responseTimeMs: null,
     lastChecked: timestamp,

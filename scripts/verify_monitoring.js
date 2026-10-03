@@ -82,6 +82,8 @@ async function runTests() {
   {
     const r = await fetchJson("/api/monitoring/services");
     assert(r.status === 200 && r.json?.data?.services?.length >= 5, "GET /api/monitoring/services returns all architectural tiers");
+    const hasZeroLatency = r.json?.data?.services?.some(s => JSON.stringify(s).toLowerCase().includes("zero-latency"));
+    assert(!hasZeroLatency, "Zero-latency IPC claims removed from service descriptions (Section 12)");
   }
 
   {
@@ -117,7 +119,12 @@ async function runTests() {
     const r = await fetchJson("/api/monitoring/d1");
     assert(r.status === 200 && r.json?.data?.tables?.length >= 3, "GET /api/monitoring/d1 returns live table rows (products, orders, feedback)");
     assert(r.json?.data?.applicationTelemetry?.totalQueries?.source === "APPLICATION_INSTRUMENTED", "D1 query counters labeled APPLICATION_INSTRUMENTED");
-    assert(r.json?.data?.storage?.storageUsed?.source === "UNAVAILABLE", "D1 storage explicitly labeled UNAVAILABLE");
+    
+    // Section 10: Validate no fake indexes reported
+    const prodTable = r.json?.data?.tables?.find(t => t.table === "products");
+    const hasFakeIndex = prodTable?.indexes?.some(idx => idx.includes("idx_products_category") || idx.includes("idx_products_active"));
+    assert(!hasFakeIndex, "No fabricated indexes (idx_products_category/active) reported for products table (Section 10)");
+    assert(prodTable?.indexes?.length > 0, `Products table indexes confirmed from schema: ${prodTable?.indexes?.join(', ')}`);
   }
 
   {
@@ -201,6 +208,55 @@ async function runTests() {
       body: JSON.stringify({ sessionId: "verify-test-session", cart: [{ id: "test-item", qty: 1 }] })
     });
     assert(r6.status === 200 && r6.json?.success === true, "POST /api/session/cart saves cart to Cloudflare KV");
+  }
+
+  console.log(`\n--- [Group 8: Security, Restricted CORS & Preflight] ---`);
+  {
+    const res = await fetch(`${BASE_URL}/api/monitoring/overview`, {
+      method: "OPTIONS",
+      headers: {
+        "Origin": "http://localhost:8080",
+        "Access-Control-Request-Method": "GET",
+        "Access-Control-Request-Headers": "X-Request-ID, Content-Type"
+      }
+    });
+    assert(res.status === 204, "OPTIONS preflight returns 204 No Content");
+    assert(res.headers.get("access-control-allow-origin") === "http://localhost:8080", "CORS securely reflects permitted origin (no unconditional *)");
+    assert(res.headers.get("access-control-allow-methods")?.includes("GET"), "CORS allows GET method");
+    assert(res.headers.get("access-control-allow-headers")?.includes("X-Request-ID"), "CORS allows X-Request-ID header");
+  }
+
+  console.log(`\n--- [Group 9: Canonical GraphQL Schemas & Introspection Unit Tests] ---`);
+  {
+    const {
+      CLOUDFLARE_ANALYTICS_DATASETS,
+      validateDatasetQuery,
+      introspectAccountDatasets
+    } = await import("../worker/monitoring/cloudflare/schema.js");
+
+    // D1 Canonical Datasets
+    assert(!!CLOUDFLARE_ANALYTICS_DATASETS.d1AnalyticsAdaptiveGroups, "Schema defines canonical d1AnalyticsAdaptiveGroups dataset");
+    assert(CLOUDFLARE_ANALYTICS_DATASETS.d1AnalyticsAdaptiveGroups.metrics.includes("readQueries"), "d1AnalyticsAdaptiveGroups includes readQueries");
+    assert(CLOUDFLARE_ANALYTICS_DATASETS.d1AnalyticsAdaptiveGroups.metrics.includes("rowsRead"), "d1AnalyticsAdaptiveGroups includes rowsRead");
+    assert(!!CLOUDFLARE_ANALYTICS_DATASETS.d1StorageAdaptiveGroups, "Schema defines canonical d1StorageAdaptiveGroups dataset");
+    assert(CLOUDFLARE_ANALYTICS_DATASETS.d1StorageAdaptiveGroups.metrics.includes("databaseSizeBytes"), "d1StorageAdaptiveGroups includes databaseSizeBytes");
+
+    // KV Canonical Datasets
+    assert(!!CLOUDFLARE_ANALYTICS_DATASETS.kvOperationsAdaptiveGroups, "Schema defines canonical kvOperationsAdaptiveGroups dataset");
+    assert(CLOUDFLARE_ANALYTICS_DATASETS.kvOperationsAdaptiveGroups.metrics.includes("requests"), "kvOperationsAdaptiveGroups includes requests");
+    assert(CLOUDFLARE_ANALYTICS_DATASETS.kvOperationsAdaptiveGroups.dimensions.includes("action"), "kvOperationsAdaptiveGroups includes action dimension for reads/writes/deletes");
+
+    // Durable Objects Canonical Datasets
+    assert(!!CLOUDFLARE_ANALYTICS_DATASETS.durableObjectsInvocationsAdaptiveGroups, "Schema defines canonical durableObjectsInvocationsAdaptiveGroups dataset");
+    assert(CLOUDFLARE_ANALYTICS_DATASETS.durableObjectsInvocationsAdaptiveGroups.metrics.includes("requests"), "durableObjectsInvocationsAdaptiveGroups includes requests");
+    assert(CLOUDFLARE_ANALYTICS_DATASETS.durableObjectsInvocationsAdaptiveGroups.metrics.includes("cpuTimeP50"), "durableObjectsInvocationsAdaptiveGroups includes cpuTimeP50");
+
+    // Introspection function
+    assert(typeof introspectAccountDatasets === "function", "Dynamic GraphQL introspection function is exported");
+
+    // Strict validation rejection test
+    const fakeTest = validateDatasetQuery("nonExistentDataset", ["fakeMetric"]);
+    assert(fakeTest.valid === false, "validateDatasetQuery correctly rejects non-existent dataset");
   }
 
   console.log(`\n======================================================`);

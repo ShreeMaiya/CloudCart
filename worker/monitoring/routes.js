@@ -11,24 +11,81 @@ import { getTraces, getTraceById } from "./tracing.js";
 import { getDeploymentMetrics } from "./deployments.js";
 import { METRIC_SOURCES, isDemoMode, formatMetric } from "./sources.js";
 
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Request-ID",
-};
+function getCorsHeaders(request, env) {
+  const origin = request?.headers?.get("Origin") || "";
+  const isAllowed = !origin ||
+    origin.includes("localhost") ||
+    origin.includes("127.0.0.1") ||
+    origin.endsWith(".pages.dev") ||
+    (env?.ALLOWED_ORIGIN && origin === env.ALLOWED_ORIGIN);
 
-function json(data, status = 200) {
+  return {
+    "Access-Control-Allow-Origin": isAllowed ? (origin || "*") : (env?.ALLOWED_ORIGIN || "null"),
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Request-ID, X-Admin-Key, X-Monitoring-Key",
+    "Vary": "Origin"
+  };
+}
+
+function verifyAdminAuth(request, env) {
+  const requiredKey = env?.MONITORING_API_KEY || env?.ADMIN_TOKEN;
+  if (!requiredKey) {
+    return { authorized: true };
+  }
+
+  const authHeader = request.headers.get("Authorization") || "";
+  const adminKeyHeader = request.headers.get("X-Admin-Key") || request.headers.get("X-Monitoring-Key") || "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.substring(7).trim() : authHeader.trim();
+
+  if (token === requiredKey || adminKeyHeader === requiredKey) {
+    return { authorized: true };
+  }
+
+  return {
+    authorized: false,
+    response: new Response(JSON.stringify({
+      success: false,
+      error: "Unauthorized. Admin credentials required to access monitoring telemetry.",
+      source: METRIC_SOURCES.UNAVAILABLE
+    }), {
+      status: 401,
+      headers: {
+        "Content-Type": "application/json",
+        ...getCorsHeaders(request, env)
+      }
+    })
+  };
+}
+
+function json(data, status = 200, request = null, env = null) {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
       "Content-Type": "application/json",
-      ...CORS_HEADERS,
+      ...getCorsHeaders(request, env),
     },
   });
 }
 
 export async function handleMonitoringRoute(request, env, ctx, path, url) {
   const demoActive = isDemoMode(env);
+
+  // Handle CORS Preflight
+  if (request.method === "OPTIONS") {
+    return new Response(null, {
+      status: 204,
+      headers: getCorsHeaders(request, env)
+    });
+  }
+
+  // Admin authentication check (enforced when MONITORING_API_KEY or ADMIN_TOKEN is set)
+  // Health probe /api/monitoring/health remains public for edge pingers
+  if (path !== "/api/monitoring/health") {
+    const auth = verifyAdminAuth(request, env);
+    if (!auth.authorized) {
+      return auth.response;
+    }
+  }
 
   // 1. Full Health Check Probe
   if (path === "/api/monitoring/health") {

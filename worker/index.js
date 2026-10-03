@@ -24,15 +24,22 @@ function jsonResponse(data, status = 200) {
 
 export default {
   async fetch(request, env, ctx) {
-    // Handle CORS Preflight
+    const url = new URL(request.url);
+    const path = url.pathname;
+
+    // Handle monitoring routes early, including their CORS preflight and restricted origins
+    if (path.startsWith("/api/monitoring")) {
+      const monResponse = await handleMonitoringRoute(request, env, ctx, path, url);
+      if (monResponse) return monResponse;
+    }
+
+    // Handle CORS Preflight for general storefront/admin API
     if (request.method === "OPTIONS") {
-      return new Response(null, { headers: CORS_HEADERS });
+      return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
 
     const startTime = performance.now();
     const requestId = request.headers.get("X-Request-ID") || `req_${crypto.randomUUID().slice(0, 8)}`;
-    const url = new URL(request.url);
-    const path = url.pathname;
 
     // Durable Object instance getter (single global instance for CloudCart catalog sync)
     const doId = env.INVENTORY_DO.idFromName("cloudcart-inventory-global");

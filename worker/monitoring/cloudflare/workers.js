@@ -1,6 +1,5 @@
-// CloudCart Monitoring - Cloudflare Workers Analytics & Performance Integration
 import { executeGraphQL } from "./graphql.js";
-import { validateTimeRange, validateCredentials, validateDatasetQuery } from "./schema.js";
+import { validateTimeRange, validateCredentials, validateDatasetQuery, introspectAccountDatasets } from "./schema.js";
 import { METRIC_SOURCES, isDemoMode, formatMetric } from "../sources.js";
 
 const SCRIPT_NAME = "cloudcart-worker";
@@ -118,6 +117,19 @@ export async function getPerformanceMetrics(env, range = "1h") {
 
   // If credentials are valid, execute real Cloudflare GraphQL query
   if (credCheck.isValid) {
+    const intro = await introspectAccountDatasets(env, executeGraphQL);
+    const hasAdaptive = !intro.ok || intro.datasets.has("workersInvocationsAdaptive");
+
+    if (!hasAdaptive) {
+      return {
+        source: METRIC_SOURCES.UNAVAILABLE,
+        isDemoData: false,
+        reason: "Dataset 'workersInvocationsAdaptive' is not exposed on this Cloudflare account.",
+        summary: null,
+        timeline: []
+      };
+    }
+
     const datasetValidation = validateDatasetQuery("workersInvocationsAdaptive", {
       dimensions: ["datetimeFifteenMinutes", "datetimeHour", "status"],
       sums: ["requests", "errors", "subrequests"],

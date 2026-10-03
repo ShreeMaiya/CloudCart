@@ -1,7 +1,7 @@
 export async function onRequest(context) {
   const { request, env } = context;
 
-  // 1. If Cloudflare Service Binding is attached, use direct zero-latency Edge IPC
+  // 1. Direct Worker-to-Worker communication through a Cloudflare Service Binding without an external HTTP network hop
   if (env.API_WORKER && typeof env.API_WORKER.fetch === "function") {
     return await env.API_WORKER.fetch(request);
   }

@@ -73,6 +73,7 @@
     <button class="tab-btn" data-tab="realtime">⚡ Real-Time</button>
     <button class="tab-btn" data-tab="logs">📜 Logs</button>
     <button class="tab-btn" data-tab="traces">🔍 Traces</button>
+    <button class="tab-btn" data-tab="deployments">🚀 Deployments</button>
   </nav>
 
   <!-- 1. OVERVIEW VIEW -->
@@ -1101,6 +1102,112 @@
           <span id="wfDetailSpanName">Click any span above to inspect execution payload & SQL</span>
         </h4>
         <pre class="json-box" style="max-height: 160px; margin-top: 0.35rem;" id="wfDetailJson">{}</pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- 9. DEPLOYMENTS VIEW -->
+  <section class="tab-view" id="view-deployments">
+    <!-- Deployment Metadata Cards -->
+    <div class="metrics-grid" style="margin-bottom: 1.5rem;">
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Active Release</span>
+          <span class="metric-icon">🚀</span>
+        </div>
+        <div class="metric-value mono" style="color: var(--accent-blue);" id="deployActiveRelease">--</div>
+        <div class="metric-sub" id="deployActiveCommit">Release identifier</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">CI/CD Pipeline</span>
+          <span class="metric-icon">🛡️</span>
+        </div>
+        <div class="metric-value" id="deployPipelineStatus">--</div>
+        <div class="metric-sub" id="deployStageCount">Workflow integration status</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Deployment Source</span>
+          <span class="metric-icon">📦</span>
+        </div>
+        <div class="metric-value" style="font-size: 1.25rem;" id="deploySourceType">--</div>
+        <div class="metric-sub" id="deploySourceDesc">Runtime build telemetry</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-title">Service Uptime</span>
+          <span class="metric-icon">⚡</span>
+        </div>
+        <div class="metric-value" style="color: var(--accent-cyan);" id="deployUptime">--</div>
+        <div class="metric-sub">Current edge instance session</div>
+      </div>
+    </div>
+
+    <!-- Business-to-Infrastructure Correlation Section -->
+    <div class="panel" style="margin-bottom: 1.5rem;">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">📈 Business & Infrastructure Correlation <span class="source-badge calculated">Calculated</span></h2>
+          <p class="panel-desc">Real-time correlation connecting edge performance and database latency to customer checkouts and revenue</p>
+        </div>
+      </div>
+
+      <div class="correlation-grid">
+        <!-- Checkout Conversion Card -->
+        <div class="correlation-card emerald">
+          <div class="correlation-header">
+            <span class="correlation-title">🛒 Checkout Orders</span>
+            <span class="status-badge healthy" id="deployConvStatus">ACTIVE ORDERS</span>
+          </div>
+          <div class="correlation-value" id="deployConvRate">--</div>
+          <div class="correlation-insight" id="deployConvSub">
+            Orders recorded in D1 database (Calculated)
+          </div>
+        </div>
+
+        <!-- Revenue Velocity Card -->
+        <div class="correlation-card cyan">
+          <div class="correlation-header">
+            <span class="correlation-title">💰 Revenue Velocity</span>
+            <span class="status-badge healthy">CALCULATED</span>
+          </div>
+          <div class="correlation-value" id="deployRevenueTotal">--</div>
+          <div class="correlation-insight" id="deployRevenueSub">
+            Calculated from D1 orders table revenue
+          </div>
+        </div>
+
+        <!-- Customer Experience Card -->
+        <div class="correlation-card purple">
+          <div class="correlation-header">
+            <span class="correlation-title">⭐ Customer Feedback</span>
+            <span class="status-badge healthy" id="deployRatingStatus">D1 REVIEWS</span>
+          </div>
+          <div class="correlation-value" id="deployRatingVal">--</div>
+          <div class="correlation-insight" id="deployRatingSub">
+            Customer review ratings from D1 database
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Deployment History / Provider Status Panel -->
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">📜 Deployment Metadata & CI/CD Provider Status <span class="source-badge unavailable" id="deployProviderBadge">UNAVAILABLE</span></h2>
+          <p class="panel-desc">Real release metadata from environment variables or GitHub Actions workflow provider</p>
+        </div>
+        <button class="btn-refresh" id="refreshDeploymentsBtn">↻ Refresh</button>
+      </div>
+
+      <div id="deployProviderMessage" style="padding: 1.5rem; text-align: center; color: var(--text-muted); background: var(--bg-card); border-radius: 8px; border: 1px dashed var(--border-color); font-size: 0.9rem;">
+        GitHub Actions deployment history: <strong>UNAVAILABLE</strong><br>
+        <span style="font-size: 0.8rem; color: var(--text-muted);">Set <code>GITHUB_TOKEN</code> and <code>GITHUB_REPOSITORY</code> secrets to stream live CI/CD pipeline runs, or enable <code>MONITORING_DEMO_MODE=true</code> for demonstration.</span>
       </div>
     </div>
   </section>

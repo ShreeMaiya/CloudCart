@@ -78,23 +78,38 @@ All monitoring endpoints are served under `/api/monitoring/*` and require no cli
 
 When valid credentials (`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`) are configured, CloudCart queries Cloudflare's GraphQL Analytics API (`https://api.cloudflare.com/client/v4/graphql`).
 
-### Schema Validation & Supported Datasets
+### Schema Validation & Supported Canonical Datasets
 
-Before issuing queries, requests are validated against known Cloudflare GraphQL schema rules (`worker/monitoring/cloudflare/schema.js`):
+Before issuing queries, requests are validated against verified Cloudflare GraphQL schema rules and live schema introspection (`worker/monitoring/cloudflare/schema.js`):
 
-1. **Worker Invocations Adaptive**: `workersInvocationsAdaptive`
-   - Supported Dimensions: `datetime`, `scriptName`, `status`
-   - Supported Metrics: `requests`, `errors`, `subrequests`, `wallTime`, `cpuTimeMs`
-   - Supported Quantiles: `quantiles { durationP50, durationP95, durationP99 }`
-2. **D1 Analytics Adaptive**: `d1AnalyticsAdaptive`
-   - Supported Dimensions: `datetime`, `databaseId`
-   - Supported Metrics: `readQueries`, `writeQueries`, `rowsRead`, `rowsWritten`, `queryBatchTimeMs`
-3. **KV Operations Adaptive**: `kvOperationsAdaptive`
-   - Supported Dimensions: `datetime`, `namespaceId`, `action`
-   - Supported Metrics: `requests`
-4. **Durable Objects Adaptive**: `durableObjectsInvocationsAdaptive`
-   - Supported Dimensions: `datetime`, `namespaceId`, `className`
-   - Supported Metrics: `requests`, `errors`, `cpuTimeMs`
+1. **Schema Introspection Pipeline**:
+   ```
+   GraphQL API  ──►  Introspection (__type: Account)  ──►  Verify Dataset Exists
+                                                                 │
+      Query Executed  ◄──  Verify Requested Fields Exist  ◄──────┘
+            │
+            ▼
+      Result returned as CLOUDFLARE_NATIVE (or UNAVAILABLE if unconfigured/unsupported)
+   ```
+
+2. **Canonical Datasets**:
+   - **Worker Invocations Adaptive**: `workersInvocationsAdaptive` & `workersInvocationsAdaptiveGroups`
+     - Supported Dimensions: `datetime`, `scriptName`, `status`
+     - Supported Metrics: `requests`, `errors`, `subrequests`, `wallTime`, `cpuTimeMs`
+     - Supported Quantiles: `quantiles { durationP50, durationP95, durationP99 }`
+   - **D1 Analytics Adaptive Groups**: `d1AnalyticsAdaptiveGroups` & `d1QueriesAdaptiveGroups`
+     - Supported Dimensions: `datetime`, `databaseId`
+     - Supported Metrics: `readQueries`, `writeQueries`, `rowsRead`, `rowsWritten`, `queryBatchTimeMs`
+   - **D1 Storage Adaptive Groups**: `d1StorageAdaptiveGroups`
+     - Supported Metrics: `max { databaseSizeBytes }`
+   - **KV Operations Adaptive Groups**: `kvOperationsAdaptiveGroups`
+     - Supported Dimensions: `datetime`, `namespaceId`, `action`
+     - Supported Metrics: `requests`, `readRequests`, `writeRequests`, `deleteRequests`
+   - **KV Storage Adaptive Groups**: `kvStorageAdaptiveGroups`
+     - Supported Metrics: `storedBytes`, `keyCount`
+   - **Durable Objects Adaptive Groups**: `durableObjectsInvocationsAdaptiveGroups` & `durableObjectsStorageGroups`
+     - Supported Dimensions: `datetime`, `namespaceId`, `className`
+     - Supported Metrics: `requests`, `errors`, `cpuTimeMs`, `subrequests`, `storedBytes`
 
 ### Absence & Error Handling
 If Cloudflare GraphQL credentials are missing or the GraphQL API returns an error or empty result:
@@ -243,7 +258,7 @@ For live platform-level analytics via Cloudflare GraphQL:
 
 The following limitations exist within Cloudflare's public GraphQL and observability APIs as of this implementation:
 
-1. **Storage Sizing**: D1 database byte allocation and KV namespace storage volumes are not currently exposed in real-time via the GraphQL Adaptive Analytics datasets.
+1. **Storage Sizing**: D1 database byte allocation is queryable via `d1StorageAdaptiveGroups` (`databaseSizeBytes`) when supported by the active account plan. When unconfigured or unsupported, it cleanly reports `null` with `source: "UNAVAILABLE"` without synthetic estimation. KV namespace storage is queryable via `kvStorageAdaptiveGroups` (`storedBytes`) under similar conditions.
 2. **Per-Key KV Frequencies**: KV Adaptive Analytics aggregates requests at the namespace and action level, not per individual cache key.
 3. **Memory Consumption**: Durable Object memory utilization (RAM heap) is not exposed via GraphQL analytics.
 4. **Pages Edge Hit-Ratio**: Cache hit ratios for static Pages assets are managed on the Pages CDN layer and not accessible via Worker service bindings.
@@ -254,10 +269,12 @@ In each of these cases, CloudCart displays `N/A` with an honest source tag (`UNA
 
 ## 12. Verification & Testing Suite
 
-CloudCart includes a comprehensive verification suite (`scripts/verify_monitoring.js`) covering 48 discrete assertions:
+CloudCart includes a comprehensive verification suite (`scripts/verify_monitoring.js`) covering over 50 discrete assertions:
 
 ```bash
 # Run verification suite against local or deployed worker
+npm test
+# or
 node scripts/verify_monitoring.js
 ```
 
@@ -268,6 +285,7 @@ node scripts/verify_monitoring.js
 4. **Observability Distinction**: Confirms Pages and Pages Functions return `UNKNOWN` / `UNAVAILABLE`.
 5. **PII Sanitization**: Verifies that auth tokens and credentials in logs are redacted.
 6. **E-Commerce Preservations**: Confirms product catalog CRUD, shopping cart, checkout, and inventory synchronization remain 100% operational.
+7. **Security & CORS**: Verifies restricted origin reflection and preflight handling.
 
 ---
 
@@ -280,13 +298,14 @@ node scripts/verify_monitoring.js
 | **Worker Latency** | `avgDuration`, `p50`, `p95`, `p99` | `CLOUDFLARE_NATIVE` / `APPLICATION_INSTRUMENTED` | Live / Measured | Computed from measured buffer; returns `null` if < 3 samples |
 | **Worker CPU Time** | `cpuTimeMs` | `CLOUDFLARE_NATIVE` | Live | Returns `null` with `source: UNAVAILABLE` |
 | **D1 Query Volume** | `d1TotalQueries` | `APPLICATION_INSTRUMENTED` | Instrumented | Live SQLite query interception counter (starts at 0) |
-| **D1 Native Analytics**| `readQueries`, `writeQueries` | `CLOUDFLARE_NATIVE` | Live | Returns `null` with `source: UNAVAILABLE` |
-| **D1 Storage** | `databaseStorageBytes` | `UNAVAILABLE` | Unavailable | Displays `Not available from current Cloudflare API` |
+| **D1 Native Analytics**| `d1AnalyticsAdaptiveGroups` | `CLOUDFLARE_NATIVE` | Live | Returns `null` with `source: UNAVAILABLE` |
+| **D1 Storage** | `databaseSizeBytes` (`d1StorageAdaptiveGroups`) | `CLOUDFLARE_NATIVE` | Live | Returns `null` with `source: UNAVAILABLE` (never estimated) |
 | **KV Operations** | `kvTotalOps` | `APPLICATION_INSTRUMENTED` | Instrumented | Live KV put/get/delete wrapper counter (starts at 0) |
-| **KV Native Analytics**| `kvOperationsAdaptive` | `CLOUDFLARE_NATIVE` | Live | Returns `null` with `source: UNAVAILABLE` |
+| **KV Native Analytics**| `kvOperationsAdaptiveGroups` | `CLOUDFLARE_NATIVE` | Live | Returns `null` with `source: UNAVAILABLE` |
+| **KV Storage** | `storedBytes` (`kvStorageAdaptiveGroups`) | `CLOUDFLARE_NATIVE` | Live | Returns `null` with `source: UNAVAILABLE` |
 | **KV Active Carts** | `activeSessionCarts` | `CALCULATED` | Calculated | Live count of non-empty cart keys in active store |
 | **Durable Object WS** | `activeConnections` | `APPLICATION_INSTRUMENTED` | Instrumented | Live `sessions.size` within InventoryDO instance |
-| **Durable Object DO** | `invocations`, `cpu` | `CLOUDFLARE_NATIVE` | Live | Returns `null` with `source: UNAVAILABLE` |
+| **Durable Object DO** | `invocations`, `cpu` (`durableObjectsInvocationsAdaptiveGroups`) | `CLOUDFLARE_NATIVE` | Live | Returns `null` with `source: UNAVAILABLE` |
 | **WebSocket Errors** | `connectionErrors` | `APPLICATION_INSTRUMENTED` | Instrumented | Measured socket disconnect/error counter (starts at 0) |
 | **Subsystem Health** | `Worker`, `D1`, `KV`, `DO` | `APPLICATION_PROBE` | Live Probes | Measured roundtrip duration for real functional operations |
 | **Pages Health** | `Pages`, `Pages Functions` | `UNAVAILABLE` | Unavailable | `status: "UNKNOWN"`, `responseTimeMs: null` |

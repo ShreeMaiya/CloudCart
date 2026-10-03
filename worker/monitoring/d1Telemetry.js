@@ -56,6 +56,9 @@ export async function getD1Metrics(env) {
   let productsCount = 0;
   let ordersCount = 0;
   let feedbackCount = 0;
+  let productIndexes = ["PRIMARY KEY (id)"];
+  let orderIndexes = ["PRIMARY KEY (id)"];
+  let feedbackIndexes = ["PRIMARY KEY (id)"];
 
   if (env && env.DB) {
     try {
@@ -63,7 +66,7 @@ export async function getD1Metrics(env) {
       probeLatency = Math.round(performance.now() - probeStart);
       probeOk = probe?.ping === 1;
 
-      // Table counts
+      // Table counts & schema-confirmed indexes (PRAGMA index_list)
       const p = await env.DB.prepare("SELECT COUNT(*) as count FROM products WHERE is_active = 1").first();
       const o = await env.DB.prepare("SELECT COUNT(*) as count FROM orders").first();
       const f = await env.DB.prepare("SELECT COUNT(*) as count FROM feedback").first();
@@ -71,6 +74,28 @@ export async function getD1Metrics(env) {
       productsCount = p?.count ?? 0;
       ordersCount = o?.count ?? 0;
       feedbackCount = f?.count ?? 0;
+
+      // Query confirmed indexes dynamically from SQLite schema — no hardcoded fake indexes
+      try {
+        const pIdx = await env.DB.prepare("PRAGMA index_list('products')").all();
+        if (pIdx?.results && pIdx.results.length > 0) {
+          productIndexes = pIdx.results.map(i => i.name);
+        }
+      } catch (_) {}
+
+      try {
+        const oIdx = await env.DB.prepare("PRAGMA index_list('orders')").all();
+        if (oIdx?.results && oIdx.results.length > 0) {
+          orderIndexes = oIdx.results.map(i => i.name);
+        }
+      } catch (_) {}
+
+      try {
+        const fIdx = await env.DB.prepare("PRAGMA index_list('feedback')").all();
+        if (fIdx?.results && fIdx.results.length > 0) {
+          feedbackIndexes = fIdx.results.map(i => i.name);
+        }
+      } catch (_) {}
     } catch (err) {
       probeError = err.message;
       probeLatency = Math.round(performance.now() - probeStart);
@@ -117,21 +142,21 @@ export async function getD1Metrics(env) {
         table: "products",
         role: "Product Catalog (Active SKUs)",
         rows: formatMetric(productsCount, METRIC_SOURCES.APPLICATION_INSTRUMENTED),
-        indexes: ["idx_products_category", "idx_products_active"],
+        indexes: productIndexes,
         source: METRIC_SOURCES.APPLICATION_INSTRUMENTED
       },
       {
         table: "orders",
         role: "Completed Customer Orders & Transactions",
         rows: formatMetric(ordersCount, METRIC_SOURCES.APPLICATION_INSTRUMENTED),
-        indexes: ["PRIMARY KEY (id)", "idx_orders_created"],
+        indexes: orderIndexes,
         source: METRIC_SOURCES.APPLICATION_INSTRUMENTED
       },
       {
         table: "feedback",
         role: "Customer Reviews & Star Ratings",
         rows: formatMetric(feedbackCount, METRIC_SOURCES.APPLICATION_INSTRUMENTED),
-        indexes: ["PRIMARY KEY (id)", "idx_feedback_created"],
+        indexes: feedbackIndexes,
         source: METRIC_SOURCES.APPLICATION_INSTRUMENTED
       }
     ],

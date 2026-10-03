@@ -1758,6 +1758,100 @@ if (traceResetFiltersBtn) {
   });
 }
 
+// -------------------------------------------------------------
+// Deployment Metadata & Business Correlation
+// -------------------------------------------------------------
+
+const deployActiveRelease = document.getElementById("deployActiveRelease");
+const deployActiveCommit = document.getElementById("deployActiveCommit");
+const deployPipelineStatus = document.getElementById("deployPipelineStatus");
+const deployStageCount = document.getElementById("deployStageCount");
+const deploySourceType = document.getElementById("deploySourceType");
+const deploySourceDesc = document.getElementById("deploySourceDesc");
+const deployUptime = document.getElementById("deployUptime");
+
+const deployConvRate = document.getElementById("deployConvRate");
+const deployConvStatus = document.getElementById("deployConvStatus");
+const deployRevenueTotal = document.getElementById("deployRevenueTotal");
+const deployRatingVal = document.getElementById("deployRatingVal");
+const deployProviderBadge = document.getElementById("deployProviderBadge");
+const deployProviderMessage = document.getElementById("deployProviderMessage");
+const refreshDeploymentsBtn = document.getElementById("refreshDeploymentsBtn");
+
+async function loadDeployments() {
+  try {
+    const res = await fetch(`${API_BASE}/deployments`);
+    if (!res.ok) return;
+    const json = await res.json();
+    if (json.success && json.data) {
+      renderDeployments(json.data);
+    }
+  } catch (err) {
+    console.error("Failed to load deployment metrics:", err);
+  }
+}
+
+function renderDeployments(data) {
+  const rel = data.currentRelease;
+  if (rel) {
+    if (deployActiveRelease) {
+      deployActiveRelease.textContent = rel.version || "N/A";
+      deployActiveRelease.style.color = rel.version ? "var(--accent-blue)" : "var(--text-muted)";
+    }
+    if (deployActiveCommit) {
+      deployActiveCommit.textContent = rel.commitSha ? `Commit: ${rel.commitSha} (${rel.branch || 'main'})` : (rel.reason || "No git commit metadata in Worker environment");
+    }
+    if (deployUptime) {
+      deployUptime.textContent = rel.uptimeHours ? `${rel.uptimeHours} hrs` : "Instance active";
+    }
+  }
+
+  if (deployPipelineStatus) {
+    const isAvail = data.source === "GITHUB_ACTIONS" || (data.pipeline?.stages?.length > 0);
+    deployPipelineStatus.textContent = isAvail ? (data.pipeline?.status || "HEALTHY") : "UNAVAILABLE";
+    deployPipelineStatus.style.color = isAvail ? "var(--success)" : "var(--text-muted)";
+  }
+
+  if (deploySourceType) {
+    deploySourceType.textContent = data.source || "UNAVAILABLE";
+  }
+
+  // Business Correlation
+  const biz = data.businessCorrelation;
+  if (biz) {
+    if (biz.checkoutConversion && deployConvRate) {
+      const orders = getVal(biz.checkoutConversion.totalOrdersRecorded, null);
+      deployConvRate.textContent = orders !== null ? `${orders} orders` : "0 orders";
+      if (deployConvStatus) deployConvStatus.textContent = orders > 0 ? "ACTIVE ORDERS" : "NO ORDERS";
+    }
+    if (biz.revenueVelocity && deployRevenueTotal) {
+      deployRevenueTotal.textContent = getVal(biz.revenueVelocity.formattedRevenue, "$0.00");
+    }
+    if (biz.customerSatisfaction && deployRatingVal) {
+      deployRatingVal.textContent = `${getVal(biz.customerSatisfaction.avgRating, 5.0)} ★★★★★`;
+    }
+  }
+
+  if (deployProviderBadge) {
+    deployProviderBadge.textContent = data.source || "UNAVAILABLE";
+    deployProviderBadge.className = `source-badge ${data.isDemoData ? 'demo' : (data.source === 'GITHUB_ACTIONS' ? 'app-instrumented' : 'unavailable')}`;
+  }
+
+  if (deployProviderMessage) {
+    if (data.isDemoData) {
+      deployProviderMessage.innerHTML = `⚠️ <strong>DEMO DATA</strong> — Simulated CI/CD deployment pipeline for local demonstration.`;
+    } else if (data.source === "GITHUB_ACTIONS") {
+      deployProviderMessage.innerHTML = `✅ <strong>GitHub Actions</strong> — Live deployment metadata connected.`;
+    } else {
+      deployProviderMessage.innerHTML = `GitHub Actions deployment history: <strong>UNAVAILABLE</strong><br><span style="font-size: 0.8rem; color: var(--text-muted);">Set <code>GITHUB_TOKEN</code> and <code>GITHUB_REPOSITORY</code> secrets to stream live CI/CD pipeline runs, or enable <code>MONITORING_DEMO_MODE=true</code> for demonstration.</span>`;
+    }
+  }
+}
+
+if (refreshDeploymentsBtn) {
+  refreshDeploymentsBtn.addEventListener("click", loadDeployments);
+}
+
 // Initial boot loader
 initMonitoring().then(() => {
   loadPerformanceMetrics();
@@ -1765,6 +1859,7 @@ initMonitoring().then(() => {
   loadRealtimeMetrics();
   loadLogs();
   loadTraces();
+  loadDeployments();
 });
 
 

@@ -52,7 +52,7 @@ flowchart TD
 
     Browser -->|"Static Assets"| CDN
     Browser -->|"HTTP / WebSockets"| PagesFunc
-    PagesFunc -->|"Zero-Latency Service Binding: API_WORKER"| Router
+    PagesFunc -->|"Direct Service Binding (Direct Edge Hop): API_WORKER"| Router
     Router --> Telemetry
     Router --> LogManager
     Router --> TraceEngine
@@ -110,19 +110,18 @@ Located at `/admin/monitoring/` (with seamless navigation linked directly from `
 
 ## 5. Metric Integrity & API Limitations Reference
 
-In accordance with strict production engineering standards, metrics are categorized into 3 transparent tiers:
+In accordance with strict production engineering standards, metrics are categorized into transparent sources (`CLOUDFLARE_NATIVE`, `APPLICATION_INSTRUMENTED`, `APPLICATION_PROBE`, `CALCULATED`, `UNAVAILABLE`, `DEMO`):
 
 | Metric | Source | Reporting Tier | Notes |
 | :--- | :--- | :--- | :--- |
-| **Worker Invocations & CPU** | Cloudflare GraphQL API | Platform Provided | Queries `workersInvocationsAdaptive` dataset. |
-| **Edge API Latencies** | In-Worker Telemetry | Application Instrumented | Rolling ring-buffer calculating P50, P95, and P99 via `performance.now()`. |
-| **D1 Query Timings** | In-Worker Telemetry | Application Instrumented | Measures actual statement execution and slow queries exceeding 35ms. |
-| **D1 Storage Usage** | Cloudflare API | Explicitly Labeled | Labeled: `"Not available from current Cloudflare API"`. |
-| **KV Operation Volume** | In-Worker Telemetry | Application Instrumented | Tracks `get`, `put`, `delete` operations on `CLOUDCART_KV`. |
-| **KV Storage Size** | Cloudflare API | Explicitly Labeled | Labeled: `"Not available from current Cloudflare API"`. |
-| **DO WebSocket Clients** | `InventoryDO` Actor State | Application Instrumented | In-memory connection map tracking active sockets and broadcast dispatches. |
-| **DO RSS Memory** | Cloudflare API | Explicitly Labeled | Labeled: `"Not available from current Cloudflare API"`. |
-| **Distributed Waterfall Spans** | In-Worker Telemetry | Application Instrumented | End-to-end hop attribution using `X-Request-ID`. |
+| **Worker Invocations & CPU** | Cloudflare GraphQL API | `CLOUDFLARE_NATIVE` | Validated via GraphQL introspection against `workersInvocationsAdaptive` and `workersInvocationsAdaptiveGroups`. |
+| **Edge API Latencies** | In-Worker Telemetry | `APPLICATION_INSTRUMENTED` | Rolling ring-buffer calculating P50, P95, and P99 via `performance.now()`. |
+| **D1 Query Timings** | In-Worker Telemetry | `APPLICATION_INSTRUMENTED` | Measures actual statement execution and slow queries exceeding 35ms. |
+| **D1 Analytics & Storage** | Cloudflare GraphQL API | `CLOUDFLARE_NATIVE` | Queries `d1AnalyticsAdaptiveGroups` and `d1StorageAdaptiveGroups` (`databaseSizeBytes`). Reports `UNAVAILABLE` when unconfigured or unsupported. |
+| **KV Operation Volume** | In-Worker / GraphQL | `APPLICATION_INSTRUMENTED` / `CLOUDFLARE_NATIVE` | Live wrapper counts operations; GraphQL queries `kvOperationsAdaptiveGroups` and `kvStorageAdaptiveGroups`. |
+| **DO WebSocket Clients** | `InventoryDO` Actor State | `APPLICATION_INSTRUMENTED` | In-memory connection map tracking active sockets and broadcast dispatches. |
+| **DO Analytics** | Cloudflare GraphQL API | `CLOUDFLARE_NATIVE` | Queries `durableObjectsInvocationsAdaptiveGroups` and `durableObjectsStorageGroups`. Reports `UNAVAILABLE` when unconfigured. |
+| **Distributed Waterfall Spans** | In-Worker Telemetry | `APPLICATION_INSTRUMENTED` | End-to-end hop attribution using `X-Request-ID`. Unmeasured hops marked `null` with `UNAVAILABLE`. |
 
 ---
 
@@ -136,8 +135,8 @@ In accordance with strict production engineering standards, metrics are categori
 | **Phase 4** | D1, KV, Durable Objects & WebSocket Monitoring | ✅ Completed | `worker/monitoring/d1Telemetry.js`, `InventoryDO` instrumentation, `/d1`, `/kv`, `/durable-objects`, `/websocket`. |
 | **Phase 5** | Centralized Logs & Error Center | ✅ Completed | `worker/monitoring/logManager.js`, `/logs`, `/logs/:id`, log table, slide-out inspector drawer. |
 | **Phase 6** | Request Correlation & Distributed Tracing | ✅ Completed | `worker/monitoring/tracing.js`, `/traces`, `/traces/:id`, Gantt waterfall visualizer, span detail drawer. |
-| **Phase 7** | CI/CD Deployments & Business Correlation | ✅ Completed | `worker/monitoring/deployments.js`, `/deployments`, 5-stage pipeline stepper, business correlation engine. |
-| **Phase 8** | UI Refinement, End-to-End Tests & Runbook | ✅ Completed | Responsive mobile styling, `scripts/verify_monitoring.js` (30/30 passed), updated `README.md`. |
+| **Phase 7** | CI/CD Deployments & Business Correlation | ✅ Completed | `worker/monitoring/deployments.js`, `/deployments`, honest deployment metadata, live D1 business correlation engine. |
+| **Phase 8** | Final Accuracy & Production Hardening | ✅ Completed | GraphQL schema discovery/introspection, canonical group datasets, CORS/auth security, over 50 automated tests. |
 
 ---
 
@@ -154,9 +153,11 @@ npm run db:setup
 
 ### Run Automated End-to-End Verification Test Suite
 ```bash
-npm run test:monitoring
+npm test
+# or
+node scripts/verify_monitoring.js
 ```
-*Executes all 30 automated validation checks covering health probes, API telemetry, database metrics, structured logs, request waterfalls, business correlations, and core e-commerce CRUD regressions.*
+*Executes over 50 automated validation checks covering health probes, API telemetry, database metrics, structured logs, request waterfalls, business correlations, CORS preflight, schema definitions, and core e-commerce CRUD regressions.*
 
 ### Direct API Smoke Tests
 ```bash

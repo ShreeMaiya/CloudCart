@@ -26,7 +26,7 @@ flowchart TD
 
     UI -->|"Static Files"| StaticAssets
     UI -->|"HTTP API & WebSockets"| PagesFunction
-    PagesFunction -->|"Cloudflare Service Binding (Zero-Latency IPC)"| API
+    PagesFunction -->|"Cloudflare Service Binding (Direct Edge Hop)"| API
     API --> DO
     API --> D1
     API --> KV
@@ -36,7 +36,7 @@ flowchart TD
 | :--- | :--- |
 | **Cloudflare Pages** | Global edge hosting for storefront & admin frontend at `cloudcart.pages.dev`. |
 | **Cloudflare Pages Functions** | Serverless edge interceptor proxying `/api/*` requests. |
-| **Cloudflare Service Bindings** | Direct, zero-latency edge-to-edge IPC connecting Pages to the backend Worker. |
+| **Cloudflare Service Bindings** | Direct Worker-to-Worker communication through a Cloudflare Service Binding without an external HTTP network hop. |
 | **Cloudflare Worker** | Backend microservice (`cloudcart-worker`) handling business logic, checkout, and inventory. |
 | **Cloudflare D1 Database** | Serverless SQLite database (`cloudcart-db`) storing persistent products, inventory, orders, and customer feedback. |
 | **Cloudflare Durable Objects** | Distributed coordination engine guaranteeing **atomic stock transactions** and **real-time WebSocket synchronization** across all active client sessions. |
@@ -93,9 +93,11 @@ For full architectural, schema, and API documentation, see [OBSERVABILITY.md](OB
 
 ### Automated Testing & Verification
 ```bash
-# Run the 48-check automated verification test suite
-npm run test:monitoring
+# Run the 67-check automated verification test suite
+npm test
+# or
+node scripts/verify_monitoring.js
 ```
-*Validates 100% of monitoring endpoints, metric honesty, source classification, PII sanitization, and core e-commerce CRUD regressions.*
+*Validates 100% of monitoring endpoints, metric honesty, source classification, PII sanitization, CORS preflight security, and core e-commerce CRUD regressions.*
 
 
