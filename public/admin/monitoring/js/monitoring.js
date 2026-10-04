@@ -33,7 +33,7 @@ function renderSourceBadge(source) {
 }
 
 // DOM Elements
-const timeRangeChips = document.getElementById("timeRangeChips");
+
 const autoRefreshSelect = document.getElementById("autoRefreshSelect");
 const manualRefreshBtn = document.getElementById("manualRefreshBtn");
 const refreshIcon = document.getElementById("refreshIcon");
@@ -104,20 +104,7 @@ function setupEventListeners() {
     });
   });
 
-  // Time Range Selection
-  if (timeRangeChips) {
-    timeRangeChips.addEventListener("click", (e) => {
-      const btn = e.target.closest(".chip-btn");
-      if (!btn) return;
-      document.querySelectorAll("#timeRangeChips .chip-btn").forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-      activeRange = btn.dataset.range;
-      refreshAllMetrics();
-      if (activeTab === "api") {
-        loadApiMetrics();
-      }
-    });
-  }
+
 
   // Auto-Refresh Select
   if (autoRefreshSelect) {
