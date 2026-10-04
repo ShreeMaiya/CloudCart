@@ -57,8 +57,7 @@ const valRequestRate = document.getElementById("valRequestRate");
 const valErrorRate = document.getElementById("valErrorRate");
 const valAvgLatency = document.getElementById("valAvgLatency");
 const valLatencySpread = document.getElementById("valLatencySpread");
-const valP99Latency = document.getElementById("valP99Latency");
-const valCpuTime = document.getElementById("valCpuTime");
+
 const valActiveWS = document.getElementById("valActiveWS");
 const valD1Activity = document.getElementById("valD1Activity");
 const valKVActivity = document.getElementById("valKVActivity");
@@ -268,16 +267,7 @@ function renderOverview(data) {
     valLatencySpread.textContent = `P50: ${p50 !== null ? p50 + "ms" : "N/A"} | P95: ${p95 !== null ? p95 + "ms" : "N/A"}`;
   }
 
-  if (valP99Latency) {
-    const p99 = getVal(mainMetrics.p99LatencyMs, null);
-    valP99Latency.textContent = p99 !== null ? `${p99} ms` : "N/A";
-  }
 
-  if (valCpuTime) {
-    const cpu = getVal(mainMetrics.workerCpuTimeMs, null);
-    valCpuTime.textContent = cpu !== null ? `${cpu} ms` : "Unavailable";
-    valCpuTime.title = cpu === null ? "Worker CPU time requires Cloudflare GraphQL API" : "";
-  }
 
   if (valActiveWS) valActiveWS.textContent = formatNum(mainMetrics.activeWebSocketConnections, "0");
   if (valD1Activity) valD1Activity.textContent = mainMetrics.d1QueryActivity || "Active (Probe OK)";
