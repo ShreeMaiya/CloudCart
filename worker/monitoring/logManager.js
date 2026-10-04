@@ -203,7 +203,14 @@ export function getLogs(filters = {}, env = null) {
     logProvider: "CloudCart Application Logs (In-Memory Buffer)",
     note: "Cloudflare Native Workers Logs require Cloudflare Tail Workers or Logpush; current logs are captured by CloudCart runtime.",
     totalMatching,
-    levelCounts,
+    timeRange: range,
+    totalLogs: totalMatching,
+    levelCounts: {
+      total: totalMatching,
+      INFO: levelCounts.INFO,
+      WARN: levelCounts.WARN,
+      ERROR: levelCounts.ERROR
+    },
     logs: paginated,
     pagination: {
       total: totalMatching,
