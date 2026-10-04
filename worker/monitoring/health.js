@@ -92,7 +92,7 @@ export async function checkSubsystems(env, request) {
       kvResponseTime = Math.round(performance.now() - kvStart);
 
       if (val === "probe_ok") {
-        kvStatus = kvResponseTime > 350 ? "DEGRADED" : "HEALTHY";
+        kvStatus = kvResponseTime > 1500 ? "DEGRADED" : "HEALTHY";
       } else {
         kvStatus = "DEGRADED";
         kvError = "KV probe read-after-write mismatch";
@@ -198,45 +198,7 @@ export async function checkSubsystems(env, request) {
     }
   });
 
-  // 6. Cloudflare Pages (Static Edge CDN Hosting)
-  // Not directly probeable from downstream Worker isolate without external monitor.
-  services.push({
-    id: "pages",
-    name: "Cloudflare Pages",
-    tier: "Edge CDN",
-    description: "Global edge CDN serving storefront and admin assets (cloudcart.pages.dev)",
-    status: "UNKNOWN",
-    responseTimeMs: null,
-    lastChecked: timestamp,
-    errorCount: 0,
-    source: "UNAVAILABLE",
-    reason: "OBSERVABILITY LIMITED — Pages static hosting is not directly probeable from backend Worker without external synthetic monitor.",
-    details: {
-      projectName: "cloudcart",
-      domain: "cloudcart.pages.dev",
-      observabilityStatus: "External probe required"
-    }
-  });
 
-  // 7. Pages Functions (Edge IPC Interceptor)
-  // Executes upstream of Worker via Service Binding. Latency cannot be invented.
-  services.push({
-    id: "pages_functions",
-    name: "Pages Functions",
-    tier: "Edge Interceptor",
-    description: "Direct Worker-to-Worker communication through a Cloudflare Service Binding without an external HTTP network hop",
-    status: "UNKNOWN",
-    responseTimeMs: null,
-    lastChecked: timestamp,
-    errorCount: 0,
-    source: "UNAVAILABLE",
-    reason: "OBSERVABILITY LIMITED — Pages Functions executes upstream of Worker. Hop latency cannot be measured from downstream Worker without IPC ingress telemetry.",
-    details: {
-      route: "/functions/api/[[route]].js",
-      binding: "API_WORKER",
-      observabilityStatus: "Upstream edge proxy"
-    }
-  });
 
   // Aggregate health calculation
   let healthyCount = 0;

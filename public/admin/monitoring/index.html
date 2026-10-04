@@ -409,13 +409,7 @@
       </div>
     </div>
 
-    <!-- D1 Latency Contribution Callout -->
-    <div class="info-callout" id="d1LatencyCallout" style="background: rgba(16, 185, 129, 0.08); border-color: rgba(16, 185, 129, 0.25); color: #a7f3d0; margin-bottom: 1.5rem;">
-      <span style="font-size: 1.2rem;">📊</span>
-      <div id="d1LatencyContributionText">
-        <strong>Latency Contribution Analysis:</strong> Evaluating whether D1 queries are contributing to overall application latency...
-      </div>
-    </div>
+
 
     <!-- D1 Metrics Grid -->
     <div class="metrics-grid" style="margin-bottom: 1.5rem;">
@@ -455,14 +449,7 @@
         <div class="metric-sub" style="color: var(--success);">Zero syntax or lock errors</div>
       </div>
 
-      <div class="metric-card">
-        <div class="metric-header">
-          <span class="metric-title">Database Storage</span>
-          <span class="metric-icon">📦</span>
-        </div>
-        <div class="metric-value" style="font-size: 0.95rem; color: var(--text-muted); line-height: 1.4;" id="d1StorageInfo">Not available from current Cloudflare API</div>
-        <div class="metric-sub">Max Limit: 10 GB (D1 Standard)</div>
-      </div>
+
     </div>
 
     <!-- Tables and Slow Queries Grid -->
@@ -507,56 +494,6 @@
       </div>
     </div>
 
-    <!-- Cloudflare KV Section -->
-    <div class="panel" style="padding: 1.25rem 1.5rem; margin-bottom: 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-      <div style="display: flex; align-items: center; gap: 1rem;">
-        <span style="font-size: 1.8rem;">🗄️</span>
-        <div>
-          <h2 style="font-size: 1.25rem; font-weight: 800;">Cloudflare KV Namespace: <span style="color: var(--accent-purple);">cloudcart-kv</span> </h2>
-          <p style="color: var(--text-muted); font-size: 0.85rem;">Global edge key-value storage caching multi-device shopping cart states (Key Pattern: <code>cart:&lt;sessionId&gt;</code>)</p>
-        </div>
-      </div>
-      <span class="status-badge healthy" id="kvStatusBadge">HEALTHY</span>
-    </div>
-
-    <!-- KV Metrics Grid -->
-    <div class="metrics-grid">
-      <div class="metric-card">
-        <div class="metric-header">
-          <span class="metric-title">KV Operation Volume</span>
-          <span class="metric-icon">🔄</span>
-        </div>
-        <div class="metric-value" id="kvTotalOps">--</div>
-        <div class="metric-sub" id="kvOpsBreakdown">Reads: -- | Writes: -- | Deletes: --</div>
-      </div>
-
-      <div class="metric-card">
-        <div class="metric-header">
-          <span class="metric-title">Avg Operation Latency</span>
-          <span class="metric-icon">⚡</span>
-        </div>
-        <div class="metric-value" id="kvAvgLatency">-- ms</div>
-        <div class="metric-sub">Global Edge Edge KV Cache</div>
-      </div>
-
-      <div class="metric-card">
-        <div class="metric-header">
-          <span class="metric-title">Estimated Active Carts</span>
-          <span class="metric-icon">🛒</span>
-        </div>
-        <div class="metric-value" id="kvActiveCarts">--</div>
-        <div class="metric-sub">Retained via 7-day TTL</div>
-      </div>
-
-      <div class="metric-card">
-        <div class="metric-header">
-          <span class="metric-title">KV Storage Volume</span>
-          <span class="metric-icon">💾</span>
-        </div>
-        <div class="metric-value" style="font-size: 0.95rem; color: var(--text-muted); line-height: 1.4;" id="kvStorageInfo">Not available from current Cloudflare API</div>
-        <div class="metric-sub">Max Item Size: 25 MB</div>
-      </div>
-    </div>
   </section>
 
 

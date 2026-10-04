@@ -550,28 +550,15 @@ const d1TablesTableBody = document.getElementById("d1TablesTableBody");
 const d1SlowQueriesTableBody = document.getElementById("d1SlowQueriesTableBody");
 const refreshDatabaseBtn = document.getElementById("refreshDatabaseBtn");
 
-const kvStatusBadge = document.getElementById("kvStatusBadge");
-const kvTotalOps = document.getElementById("kvTotalOps");
-const kvOpsBreakdown = document.getElementById("kvOpsBreakdown");
-const kvAvgLatency = document.getElementById("kvAvgLatency");
-const kvActiveCarts = document.getElementById("kvActiveCarts");
-const kvStorageInfo = document.getElementById("kvStorageInfo");
+
 
 async function loadDatabaseMetrics() {
   try {
-    const [d1Res, kvRes] = await Promise.all([
-      fetch(`${API_BASE}/d1`),
-      fetch(`${API_BASE}/kv`)
-    ]);
+    const d1Res = await fetch(`${API_BASE}/d1`);
 
     if (d1Res.ok) {
       const d1Json = await d1Res.json();
       if (d1Json.success && d1Json.data) renderD1Metrics(d1Json.data);
-    }
-
-    if (kvRes.ok) {
-      const kvJson = await kvRes.json();
-      if (kvJson.success && kvJson.data) renderKVMetrics(kvJson.data);
     }
   } catch (err) {
     console.error("Error loading database metrics:", err);
@@ -584,16 +571,6 @@ function renderD1Metrics(data) {
     d1StatusBadge.className = `status-badge ${data.status.toLowerCase()}`;
   }
 
-  if (d1LatencyContributionText) {
-    const nativeAnalytics = data.cloudflareNativeAnalytics;
-    const nativeLabel = nativeAnalytics?.source === "CLOUDFLARE_NATIVE"
-      ? "Cloudflare D1 Platform Analytics: Active"
-      : `Cloudflare D1 Platform Analytics: ${nativeAnalytics?.reason || 'Unavailable (GraphQL credentials not configured)'}`;
-    
-    d1LatencyContributionText.innerHTML = `
-      <strong>Source Status:</strong> CloudCart Application Instrumentation: <em>Active in-isolate</em> | ${nativeLabel}
-    `;
-  }
 
   const appTel = data.applicationTelemetry || data.queryActivity || {};
   if (d1TotalQueries) {
@@ -611,9 +588,6 @@ function renderD1Metrics(data) {
     d1QueryErrors.textContent = formatNum(appTel.errors ?? appTel.queryErrorsCount, "0");
   }
 
-  if (d1StorageInfo && data.storage) {
-    d1StorageInfo.textContent = getVal(data.storage.storageUsed, "Unavailable from Worker API");
-  }
 
   // Render Tables
   if (d1TablesTableBody && data.tables) {
@@ -660,32 +634,7 @@ function renderD1Metrics(data) {
   }
 }
 
-function renderKVMetrics(data) {
-  if (kvStatusBadge) {
-    kvStatusBadge.textContent = data.status;
-    kvStatusBadge.className = `status-badge ${data.status.toLowerCase()}`;
-  }
 
-  const appKV = data.applicationTelemetry || data.operationVolume || {};
-  if (kvTotalOps) {
-    kvTotalOps.textContent = formatNum(appKV.totalOperations, "0");
-    const reads = formatNum(appKV.reads, "0");
-    const writes = formatNum(appKV.writes, "0");
-    const deletes = formatNum(appKV.deletes, "0");
-    kvOpsBreakdown.textContent = `Reads: ${reads} | Writes: ${writes} | Deletes: ${deletes}`;
-    
-    const avg = getVal(appKV.avgOperationLatencyMs, getVal(data.probe?.probeLatencyMs, null));
-    kvAvgLatency.textContent = avg !== null ? `${avg} ms` : "N/A";
-  }
-
-  if (kvActiveCarts) {
-    kvActiveCarts.textContent = "Active (7-day TTL expiration)";
-  }
-
-  if (kvStorageInfo && data.storage) {
-    kvStorageInfo.textContent = getVal(data.storage.storageUsed, "Unavailable from Worker API");
-  }
-}
 
 
 
