@@ -1,14 +1,8 @@
 // CloudCart Monitoring - REST API Routes Handler
 import { checkSubsystems } from "./health.js";
 import { getApiEndpointMetrics, getRecentRequests, getRecentBusinessEvents } from "./telemetry.js";
-import { getPerformanceMetrics } from "./cloudflare/workers.js";
-import { getNativeD1Analytics } from "./cloudflare/d1.js";
-import { getNativeKVAnalytics } from "./cloudflare/kv.js";
-import { getNativeDOAnalytics } from "./cloudflare/durableObjects.js";
 import { getD1Metrics, getKVMetrics, getDOMetrics } from "./d1Telemetry.js";
 import { getLogs, getLogById } from "./logManager.js";
-import { getTraces, getTraceById } from "./tracing.js";
-import { getDeploymentMetrics } from "./deployments.js";
 import { METRIC_SOURCES, isDemoMode, formatMetric } from "./sources.js";
 
 function getCorsHeaders(request, env) {
@@ -157,61 +151,38 @@ export async function handleMonitoringRoute(request, env, ctx, path, url) {
     });
   }
 
-  // 6. Performance Telemetry & Latency Timeline (Cloudflare GraphQL)
-  if (path === "/api/monitoring/performance") {
-    const range = url.searchParams.get("range") || "1h";
-    const perf = await getPerformanceMetrics(env, range);
-    return json({
-      success: true,
-      data: {
-        timeRange: range,
-        timestamp: new Date().toISOString(),
-        ...perf
-      }
-    });
-  }
-
   // 7. D1 Database Telemetry & Query Insights
   if (path === "/api/monitoring/d1") {
-    const range = url.searchParams.get("range") || "1h";
     const appD1 = await getD1Metrics(env);
-    const nativeD1 = await getNativeD1Analytics(env, range);
 
     return json({
       success: true,
       data: {
-        ...appD1,
-        cloudflareNativeAnalytics: nativeD1
+        ...appD1
       }
     });
   }
 
   // 8. Cloudflare KV Telemetry & Cache Activity
   if (path === "/api/monitoring/kv") {
-    const range = url.searchParams.get("range") || "1h";
     const appKV = await getKVMetrics(env);
-    const nativeKV = await getNativeKVAnalytics(env, range);
 
     return json({
       success: true,
       data: {
-        ...appKV,
-        cloudflareNativeAnalytics: nativeKV
+        ...appKV
       }
     });
   }
 
   // 9. Durable Object (InventoryDO) Telemetry
   if (path === "/api/monitoring/durable-objects") {
-    const range = url.searchParams.get("range") || "1h";
     const appDO = await getDOMetrics(env);
-    const nativeDO = await getNativeDOAnalytics(env, range);
 
     return json({
       success: true,
       data: {
-        ...appDO,
-        cloudflareNativeAnalytics: nativeDO
+        ...appDO
       }
     });
   }
@@ -254,7 +225,6 @@ export async function handleMonitoringRoute(request, env, ctx, path, url) {
     const range = url.searchParams.get("range") || "1h";
     const health = await checkSubsystems(env, request);
     const telemetryData = getApiEndpointMetrics({ range }, env);
-    const perfData = await getPerformanceMetrics(env, range);
 
     // Active WebSocket count from DO probe
     const doService = health.services.find(s => s.id === "inventory_do");
@@ -264,11 +234,6 @@ export async function handleMonitoringRoute(request, env, ctx, path, url) {
     const rangeSeconds = range === "15m" ? 900 : range === "6h" ? 21600 : range === "24h" ? 86400 : range === "7d" ? 604800 : 3600;
     const totalReqs = telemetryData.summary.totalRequests.value ?? 0;
     const reqRate = totalReqs > 0 ? Number((totalReqs / (rangeSeconds / 60)).toFixed(1)) : 0;
-
-    // Check CPU time from native metrics if available, otherwise null (never hardcode 1.8!)
-    const cpuTimeMetric = perfData.summary?.avgCpuTimeMs?.value !== undefined && perfData.summary?.avgCpuTimeMs?.value !== null
-      ? perfData.summary.avgCpuTimeMs
-      : formatMetric(null, METRIC_SOURCES.UNAVAILABLE, { reason: "Worker CPU execution time requires Cloudflare GraphQL Analytics" });
 
     return json({
       success: true,
@@ -292,7 +257,6 @@ export async function handleMonitoringRoute(request, env, ctx, path, url) {
           p50LatencyMs: telemetryData.summary.overallP50,
           p95LatencyMs: telemetryData.summary.overallP95,
           p99LatencyMs: telemetryData.summary.overallP99,
-          workerCpuTimeMs: cpuTimeMetric,
           activeWebSocketConnections: formatMetric(activeWs, METRIC_SOURCES.APPLICATION_INSTRUMENTED),
           d1QueryActivity: "Active (SELECT 1 probe ok)",
           kvOperationActivity: "Active (Read/Write probe ok)",
@@ -342,55 +306,7 @@ export async function handleMonitoringRoute(request, env, ctx, path, url) {
     });
   }
 
-  // 14. Distributed Tracing Route
-  if (path === "/api/monitoring/traces") {
-    const range = url.searchParams.get("range") || "1h";
-    const endpoint = url.searchParams.get("endpoint") || "all";
-    const status = url.searchParams.get("status") || "all";
-    const service = url.searchParams.get("service") || "all";
-    const minDuration = parseFloat(url.searchParams.get("minDuration") || "0");
-    const search = url.searchParams.get("search") || "";
-    const limit = Math.min(parseInt(url.searchParams.get("limit") || "50", 10), 100);
-    const offset = parseInt(url.searchParams.get("offset") || "0", 10);
 
-    const traceResults = getTraces({
-      range,
-      endpoint,
-      status,
-      service,
-      minDuration,
-      search,
-      limit,
-      offset
-    }, env);
-
-    return json({
-      success: true,
-      data: traceResults
-    });
-  }
-
-  // 15. Single Trace Detail with Spans
-  if (path.startsWith("/api/monitoring/traces/")) {
-    const traceId = path.split("/")[4];
-    const traceEntry = getTraceById(traceId, env);
-    if (!traceEntry) {
-      return json({ success: false, error: "Trace not found" }, 404);
-    }
-    return json({
-      success: true,
-      data: traceEntry
-    });
-  }
-
-  // 16. CI/CD Deployments & Business Correlation Route
-  if (path === "/api/monitoring/deployments") {
-    const deploymentData = await getDeploymentMetrics(env);
-    return json({
-      success: true,
-      data: deploymentData
-    });
-  }
 
   return null;
 }
