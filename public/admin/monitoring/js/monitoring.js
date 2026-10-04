@@ -29,29 +29,7 @@ function formatNum(m, fallback = "--") {
 }
 
 function renderSourceBadge(source) {
-  if (!source) return "";
-  const s = String(source).toUpperCase();
-  let label = source;
-  let cls = "unavailable";
-
-  if (s === "CLOUDFLARE_NATIVE" || s === "CLOUDFLARE_GRAPHQL") {
-    label = "Cloudflare Native";
-    cls = "cloudflare-native";
-  } else if (s === "APPLICATION_INSTRUMENTED" || s === "APPLICATION_PROBE") {
-    label = "App Instrumented";
-    cls = "app-instrumented";
-  } else if (s === "CALCULATED") {
-    label = "Calculated";
-    cls = "calculated";
-  } else if (s === "DEMO") {
-    label = "Demo Data";
-    cls = "demo";
-  } else if (s === "UNAVAILABLE") {
-    label = "Unavailable";
-    cls = "unavailable";
-  }
-
-  return `<span class="source-badge ${cls}">${label}</span>`;
+  return "";
 }
 
 // DOM Elements
@@ -622,7 +600,7 @@ function renderD1Metrics(data) {
     d1TotalQueries.textContent = formatNum(appTel.totalQueries, "0");
     const reads = formatNum(appTel.reads ?? appTel.readsCount, "0");
     const writes = formatNum(appTel.writes ?? appTel.writesCount, "0");
-    d1ReadsWritesSub.textContent = `Reads: ${reads} | Writes: ${writes} (Application Instrumented)`;
+    d1ReadsWritesSub.textContent = `Reads: ${reads} | Writes: ${writes}`;
     
     const avg = getVal(appTel.avgQueryLatencyMs, getVal(data.probe?.probeLatencyMs, null));
     d1AvgQueryLatency.textContent = avg !== null ? `${avg} ms` : "N/A";
@@ -694,7 +672,7 @@ function renderKVMetrics(data) {
     const reads = formatNum(appKV.reads, "0");
     const writes = formatNum(appKV.writes, "0");
     const deletes = formatNum(appKV.deletes, "0");
-    kvOpsBreakdown.textContent = `Reads: ${reads} | Writes: ${writes} | Deletes: ${deletes} (Application Instrumented)`;
+    kvOpsBreakdown.textContent = `Reads: ${reads} | Writes: ${writes} | Deletes: ${deletes}`;
     
     const avg = getVal(appKV.avgOperationLatencyMs, getVal(data.probe?.probeLatencyMs, null));
     kvAvgLatency.textContent = avg !== null ? `${avg} ms` : "N/A";
@@ -709,77 +687,7 @@ function renderKVMetrics(data) {
   }
 }
 
-// -------------------------------------------------------------
-// Real-Time & Durable Object Monitoring (Phase 4)
-// -------------------------------------------------------------
 
-const doRoleDisplay = document.getElementById("doRoleDisplay");
-const doStatusBadge = document.getElementById("doStatusBadge");
-const doActiveConnections = document.getElementById("doActiveConnections");
-const doConnectionsMeta = document.getElementById("doConnectionsMeta");
-const doMessagesSent = document.getElementById("doMessagesSent");
-const doMessagesReceived = document.getElementById("doMessagesReceived");
-const doTotalPurchases = document.getElementById("doTotalPurchases");
-const doPurchaseErrors = document.getElementById("doPurchaseErrors");
-const doAvgPurchaseLatency = document.getElementById("doAvgPurchaseLatency");
-const doConnectionErrors = document.getElementById("doConnectionErrors");
-const refreshRealtimeBtn = document.getElementById("refreshRealtimeBtn");
-
-const appActiveWs = document.getElementById("appActiveWs");
-const appOpenedWs = document.getElementById("appOpenedWs");
-const appClosedWs = document.getElementById("appClosedWs");
-const appBroadcasts = document.getElementById("appBroadcasts");
-const appPurchases = document.getElementById("appPurchases");
-
-async function loadRealtimeMetrics() {
-  try {
-    const res = await fetch(`${API_BASE}/durable-objects`);
-    if (!res.ok) return;
-    const json = await res.json();
-    if (json.success && json.data) {
-      renderRealtimeMetrics(json.data);
-    }
-  } catch (err) {
-    console.error("Error loading real-time metrics:", err);
-  }
-}
-
-function renderRealtimeMetrics(data) {
-  if (doRoleDisplay && data.role) doRoleDisplay.textContent = data.role;
-
-  if (doStatusBadge) {
-    doStatusBadge.textContent = data.status || "HEALTHY";
-    doStatusBadge.className = `status-badge ${(data.status || 'healthy').toLowerCase()}`;
-  }
-
-  const appDO = data.applicationInstrumented || data;
-  const active = getVal(appDO.activeConnections, 0);
-
-  if (doActiveConnections) doActiveConnections.textContent = formatNum(active, "0");
-  if (doConnectionsMeta) {
-    const opened = formatNum(appDO.totalConnectionsOpened, "0");
-    const closed = formatNum(appDO.totalConnectionsClosed, "0");
-    doConnectionsMeta.textContent = `Opened: ${opened} | Closed: ${closed} (In-Isolate Actor)`;
-  }
-
-  if (doMessagesSent) doMessagesSent.textContent = formatNum(appDO.totalMessagesSent, "0");
-  if (doMessagesReceived) doMessagesReceived.textContent = `Received (Pings): ${formatNum(appDO.totalMessagesReceived, "0")}`;
-
-  if (doTotalPurchases) doTotalPurchases.textContent = formatNum(appDO.totalPurchases, "0");
-  const pErrors = getVal(appDO.purchaseErrors, 0);
-  if (doPurchaseErrors) doPurchaseErrors.textContent = `${pErrors} purchase failure${pErrors === 1 ? '' : 's'}`;
-  
-  const avgPur = getVal(appDO.avgPurchaseLatencyMs, null);
-  if (doAvgPurchaseLatency) doAvgPurchaseLatency.textContent = avgPur !== null ? `${avgPur} ms` : "N/A";
-  if (doConnectionErrors) doConnectionErrors.textContent = formatNum(appDO.connectionErrors, "0");
-
-  // Application Instrumented Table
-  if (appActiveWs) appActiveWs.textContent = formatNum(active, "0");
-  if (appOpenedWs) appOpenedWs.textContent = formatNum(appDO.totalConnectionsOpened, "0");
-  if (appClosedWs) appClosedWs.textContent = formatNum(appDO.totalConnectionsClosed, "0");
-  if (appBroadcasts) appBroadcasts.textContent = formatNum(appDO.totalMessagesSent, "0");
-  if (appPurchases) appPurchases.textContent = formatNum(appDO.totalPurchases, "0");
-}
 
 // -------------------------------------------------------------
 // Centralized Logs & Error Center (Phase 5)
@@ -1045,20 +953,16 @@ if (drawerCopyReqId) {
   });
 }
 
-// Event Listeners for DB & Realtime Refresh Buttons
+// Event Listeners for DB Refresh Buttons
 if (refreshDatabaseBtn) {
   refreshDatabaseBtn.addEventListener("click", loadDatabaseMetrics);
 }
-if (refreshRealtimeBtn) {
-  refreshRealtimeBtn.addEventListener("click", loadRealtimeMetrics);
-}
 
-// Update switchTab to load Database, Real-Time, and Logs tabs
+// Update switchTab to load Database and Logs tabs
 const origSwitchTab = window.switchTab;
 window.switchTab = function(tabName) {
   origSwitchTab(tabName);
   if (tabName === "database") loadDatabaseMetrics();
-  else if (tabName === "realtime") loadRealtimeMetrics();
   else if (tabName === "logs") loadLogs();
 };
 
@@ -1067,7 +971,6 @@ window.switchTab = function(tabName) {
 // Initial boot loader
 initMonitoring().then(() => {
   loadDatabaseMetrics();
-  loadRealtimeMetrics();
   loadLogs();
 });
 

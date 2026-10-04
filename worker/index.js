@@ -2,6 +2,7 @@ import { InventoryDO, InventorySyncDO } from "./InventoryDO.js";
 import { handleMonitoringRoute } from "./monitoring/routes.js";
 import { recordRequest } from "./monitoring/telemetry.js";
 import { recordLog } from "./monitoring/logManager.js";
+import { recordD1Query, recordKVOperation } from "./monitoring/d1Telemetry.js";
 
 export { InventoryDO, InventorySyncDO };
 
@@ -47,8 +48,66 @@ export default {
     let response;
     let errorText = null;
 
+    const wrappedEnv = { ...env };
+    
+    if (env.DB) {
+      const origPrepare = env.DB.prepare.bind(env.DB);
+      wrappedEnv.DB = {
+        prepare: (query) => {
+          const stmt = origPrepare(query);
+          const isWrite = query.trim().toUpperCase().match(/^(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER)/) !== null;
+          
+          const wrapExecute = (fn) => async (...args) => {
+             const t0 = performance.now();
+             try {
+               const res = await fn(...args);
+               recordD1Query(query, performance.now() - t0, isWrite);
+               return res;
+             } catch(e) {
+               recordD1Query(query, performance.now() - t0, isWrite, e.message);
+               throw e;
+             }
+          };
+
+          return {
+             bind: (...bArgs) => {
+                const bound = stmt.bind(...bArgs);
+                return {
+                   all: wrapExecute(bound.all.bind(bound)),
+                   run: wrapExecute(bound.run.bind(bound)),
+                   first: wrapExecute(bound.first.bind(bound))
+                };
+             },
+             all: wrapExecute(stmt.all.bind(stmt)),
+             run: wrapExecute(stmt.run.bind(stmt)),
+             first: wrapExecute(stmt.first.bind(stmt))
+          };
+        }
+      };
+    }
+
+    if (env.CLOUDCART_KV) {
+      wrappedEnv.CLOUDCART_KV = {
+        get: async (...args) => {
+           const t0 = performance.now();
+           try { const r = await env.CLOUDCART_KV.get(...args); recordKVOperation("get", performance.now() - t0); return r; }
+           catch(e) { recordKVOperation("get", performance.now() - t0, e.message); throw e; }
+        },
+        put: async (...args) => {
+           const t0 = performance.now();
+           try { const r = await env.CLOUDCART_KV.put(...args); recordKVOperation("put", performance.now() - t0); return r; }
+           catch(e) { recordKVOperation("put", performance.now() - t0, e.message); throw e; }
+        },
+        delete: async (...args) => {
+           const t0 = performance.now();
+           try { const r = await env.CLOUDCART_KV.delete(...args); recordKVOperation("delete", performance.now() - t0); return r; }
+           catch(e) { recordKVOperation("delete", performance.now() - t0, e.message); throw e; }
+        }
+      };
+    }
+
     try {
-      response = await handleWorkerRequest(request, env, ctx, url, path, doStub, requestId);
+      response = await handleWorkerRequest(request, wrappedEnv, ctx, url, path, doStub, requestId);
     } catch (err) {
       console.error("Worker Server Error:", err);
       errorText = err.message;
