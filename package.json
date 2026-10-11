@@ -9,8 +9,8 @@
     "db:setup": "wrangler d1 execute DB --local --file=./schema.sql",
     "deploy": "node scripts/setup.js",
     "deploy:dry-run": "node scripts/setup.js --dry-run",
-    "test": "node scripts/verify_monitoring.js",
-    "test:monitoring": "node scripts/verify_monitoring.js"
+    "test": "node scripts/verify_observability.js",
+    "test:observability": "node scripts/verify_observability.js"
   },
   "keywords": ["cloudcart", "cloudflare", "workers", "d1", "durable-objects", "kv", "e-commerce"],
   "author": "Cloudflare Intern",

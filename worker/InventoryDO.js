@@ -18,8 +18,30 @@ export class InventoryDO {
     this.startedAt = new Date().toISOString();
   }
 
+  emitLog(level, message, context = {}, traceMeta = {}) {
+    const entry = {
+      timestamp: new Date().toISOString(),
+      level: level.toUpperCase(),
+      service: "inventory_do",
+      message,
+      traceId: traceMeta.traceId || null,
+      spanId: traceMeta.spanId || null,
+      requestId: traceMeta.requestId || null,
+      context
+    };
+    const line = JSON.stringify(entry);
+    if (level === "error") console.error(line);
+    else if (level === "warn") console.warn(line);
+    else console.log(line);
+  }
+
   async fetch(request) {
     const url = new URL(request.url);
+    const traceMeta = {
+      traceId: request.headers.get("X-Trace-ID") || null,
+      spanId: request.headers.get("X-Span-ID") || null,
+      requestId: request.headers.get("X-Request-ID") || null
+    };
 
     // Handle WebSocket Upgrade for real-time live sync channel
     if (request.headers.get("Upgrade") === "websocket") {
@@ -78,6 +100,10 @@ export class InventoryDO {
     if (path === "/sync-broadcast" && method === "POST") {
       const payload = await request.json();
       this.broadcast(payload);
+      this.emitLog("info", `Broadcasted ${payload.type || "EVENT"} to ${this.sessions.size} connected clients`, {
+        broadcastType: payload.type,
+        activeClients: this.sessions.size
+      }, traceMeta);
       return new Response(JSON.stringify({ success: true, activeConnections: this.sessions.size }), {
         headers: { "Content-Type": "application/json" }
       });
@@ -85,7 +111,7 @@ export class InventoryDO {
 
     if (path === "/atomic-purchase" && method === "POST") {
       const { items, customerName } = await request.json();
-      return await this.handleAtomicPurchase(items, customerName);
+      return await this.handleAtomicPurchase(items, customerName, traceMeta);
     }
 
     return new Response("Not Found", { status: 404 });
@@ -95,6 +121,11 @@ export class InventoryDO {
     serverSocket.accept();
     this.sessions.add(serverSocket);
     this.totalConnectionsOpened++;
+
+    this.emitLog("info", "WebSocket client connected", {
+      activeConnections: this.sessions.size,
+      totalOpened: this.totalConnectionsOpened
+    });
 
     // Send initial handshake message with connection metadata
     serverSocket.send(JSON.stringify({
@@ -114,19 +145,26 @@ export class InventoryDO {
           serverSocket.send(JSON.stringify({ type: "PONG" }));
         }
       } catch (err) {
-        console.error("DO WS message error:", err);
+        this.emitLog("warn", "DO WebSocket message parse error", { error: err.message });
       }
     });
 
     const closeHandler = () => {
       this.sessions.delete(serverSocket);
       this.totalConnectionsClosed++;
+      this.emitLog("info", "WebSocket client disconnected", {
+        activeConnections: this.sessions.size,
+        totalClosed: this.totalConnectionsClosed
+      });
       this.broadcastUserCount();
     };
 
     serverSocket.addEventListener("close", closeHandler);
-    serverSocket.addEventListener("error", () => {
+    serverSocket.addEventListener("error", (err) => {
       this.connectionErrors++;
+      this.emitLog("error", "WebSocket client socket error", {
+        error: err?.message || "Unknown socket error"
+      });
       closeHandler();
     });
   }
@@ -155,12 +193,13 @@ export class InventoryDO {
     }
   }
 
-  async handleAtomicPurchase(items, customerName) {
+  async handleAtomicPurchase(items, customerName, traceMeta = {}) {
     const purchaseStart = performance.now();
 
     // Guard: validate items is a non-empty array
     if (!Array.isArray(items) || items.length === 0) {
       this.purchaseErrors++;
+      this.emitLog("warn", "Atomic purchase failed: cart is empty or invalid", { error: "Cart is empty" }, traceMeta);
       return new Response(JSON.stringify({
         success: false,
         error: "Cart is empty or invalid."
@@ -189,6 +228,10 @@ export class InventoryDO {
 
     if (validationErrors.length > 0) {
       this.purchaseErrors++;
+      this.emitLog("warn", `Atomic purchase stock validation failed: ${validationErrors.join("; ")}`, {
+        errors: validationErrors,
+        customerName: customerName || "Guest"
+      }, traceMeta);
       return new Response(JSON.stringify({
         success: false,
         error: validationErrors.join(" ")
@@ -244,6 +287,14 @@ export class InventoryDO {
     this.totalPurchases++;
     this.purchaseLatencies.push(durationMs);
     if (this.purchaseLatencies.length > 50) this.purchaseLatencies.shift();
+
+    this.emitLog("info", `Atomic checkout completed: Order ${orderId} (₹${totalAmount}, ${totalItems} items) in ${durationMs}ms`, {
+      orderId,
+      customerName: finalCustomerName,
+      totalAmount,
+      totalItems,
+      durationMs
+    }, traceMeta);
 
     return new Response(JSON.stringify({
       success: true,

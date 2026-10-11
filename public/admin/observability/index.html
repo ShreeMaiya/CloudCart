@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CloudCart — Observability</title>
+  <meta name="description" content="CloudCart observability dashboard — logs, metrics, and distributed traces.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/observability.css">
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-brand">
+      <div class="dot" id="healthDot"></div>
+      <div>
+        <h1>CloudCart Observability</h1>
+        <span id="overallStatusText">Checking system health…</span>
+      </div>
+    </div>
+    <nav class="header-nav">
+      <a href="/admin/">← Admin Portal</a>
+      <a href="/" target="_blank">Storefront ↗</a>
+    </nav>
+  </header>
+
+  <!-- Controls -->
+  <div class="controls">
+    <span class="ctrl-label">Time range:</span>
+    <select id="rangeSelect">
+      <option value="15m">15 minutes</option>
+      <option value="1h" selected>1 hour</option>
+      <option value="6h">6 hours</option>
+      <option value="24h">24 hours</option>
+    </select>
+    <span class="ctrl-label">Auto-refresh:</span>
+    <select id="autoRefreshSelect">
+      <option value="0">Off</option>
+      <option value="15000">15 sec</option>
+      <option value="30000" selected>30 sec</option>
+      <option value="60000">1 min</option>
+    </select>
+    <button class="btn btn-primary" id="refreshBtn">↻ Refresh</button>
+    <span class="last-updated" id="lastUpdated">—</span>
+  </div>
+
+  <!-- Tab Nav -->
+  <nav class="tab-nav">
+    <button class="tab-btn active" data-tab="overview"><span class="tab-icon">📊</span> Overview</button>
+    <button class="tab-btn" data-tab="logs"><span class="tab-icon">📜</span> Logs</button>
+    <button class="tab-btn" data-tab="metrics"><span class="tab-icon">📈</span> Metrics</button>
+    <button class="tab-btn" data-tab="traces"><span class="tab-icon">🔗</span> Traces</button>
+    <button class="tab-btn" data-tab="health"><span class="tab-icon">🛡️</span> Health</button>
+  </nav>
+
+  <!-- ── OVERVIEW ── -->
+  <section class="tab-view active" id="view-overview">
+    <div class="health-banner" id="overviewBanner">
+      <div class="health-left">
+        <div class="health-orb" id="overviewOrb">✓</div>
+        <div>
+          <div class="health-title" id="overviewTitle">System Healthy</div>
+          <div class="health-sub" id="overviewSub">Last checked: —</div>
+        </div>
+      </div>
+      <div class="health-pills">
+        <div class="health-pill"><div class="health-pill-num text-success" id="ovHealthy">—</div><div class="health-pill-label">Healthy</div></div>
+        <div class="health-pill"><div class="health-pill-num text-warn"    id="ovDegraded">—</div><div class="health-pill-label">Degraded</div></div>
+        <div class="health-pill"><div class="health-pill-num text-error"   id="ovFailed">—</div><div class="health-pill-label">Failed</div></div>
+        <div class="health-pill"><div class="health-pill-num"              id="ovTotal">—</div><div class="health-pill-label">Services</div></div>
+      </div>
+    </div>
+
+    <p class="section-title">Request Metrics</p>
+    <div class="grid-4" id="overviewRequestCards">
+      <div class="card"><div class="card-label">Total Requests</div><div class="card-value" id="ovReqTotal">—</div></div>
+      <div class="card"><div class="card-label">Error Rate</div><div class="card-value" id="ovErrRate">—</div></div>
+      <div class="card"><div class="card-label">Avg Latency</div><div class="card-value" id="ovAvgLat">—</div></div>
+      <div class="card"><div class="card-label">P95 Latency</div><div class="card-value" id="ovP95Lat">—</div></div>
+    </div>
+
+    <p class="section-title">Business Events</p>
+    <div class="grid-4">
+      <div class="card"><div class="card-label">Checkouts Total</div><div class="card-value" id="ovCheckouts">—</div></div>
+      <div class="card"><div class="card-label">Checkout Success</div><div class="card-value text-success" id="ovCheckoutOk">—</div></div>
+      <div class="card"><div class="card-label">Revenue (session)</div><div class="card-value" id="ovRevenue">—</div></div>
+      <div class="card"><div class="card-label">Active WebSockets</div><div class="card-value" id="ovWS">—</div></div>
+    </div>
+  </section>
+
+  <!-- ── LOGS ── -->
+  <section class="tab-view" id="view-logs">
+    <div class="log-filters">
+      <select id="logLevel" class="controls-select">
+        <option value="all">All Levels</option>
+        <option value="INFO">INFO</option>
+        <option value="WARN">WARN</option>
+        <option value="ERROR">ERROR</option>
+        <option value="DEBUG">DEBUG</option>
+      </select>
+      <select id="logService">
+        <option value="all">All Services</option>
+        <option value="worker">Worker</option>
+        <option value="d1">D1</option>
+        <option value="kv">KV</option>
+        <option value="inventory_do">InventoryDO</option>
+      </select>
+      <input id="logSearch" type="text" placeholder="Search logs…" style="width:220px;">
+      <button class="btn btn-ghost" onclick="loadLogs()">Filter</button>
+    </div>
+    <div class="log-count-pills" id="logCountPills"></div>
+    <div class="obs-table-wrap" id="logsContainer">
+      <div class="empty-state">⟳ Loading logs…</div>
+    </div>
+  </section>
+
+  <!-- ── METRICS ── -->
+  <section class="tab-view" id="view-metrics">
+    <p class="section-title">HTTP Request Performance</p>
+    <div class="obs-table-wrap" id="metricsRequestTable">
+      <div class="empty-state">⟳ Loading…</div>
+    </div>
+
+    <p class="section-title">Business Event Counters</p>
+    <div class="grid-4" id="bizCounters">
+      <div class="card"><div class="card-label">Products Created</div><div class="card-value" id="mProdCreated">—</div></div>
+      <div class="card"><div class="card-label">Products Updated</div><div class="card-value" id="mProdUpdated">—</div></div>
+      <div class="card"><div class="card-label">Checkouts Success</div><div class="card-value text-success" id="mChkOk">—</div></div>
+      <div class="card"><div class="card-label">Checkouts Failed</div><div class="card-value text-error" id="mChkFail">—</div></div>
+    </div>
+
+    <p class="section-title">Infrastructure Counters</p>
+    <div class="grid-3" id="infraCards">
+      <div class="card">
+        <div class="card-label">D1 Database</div>
+        <div style="display:flex;gap:1.5rem;margin-top:0.5rem;">
+          <div><div style="font-size:0.7rem;color:var(--text-muted)">Reads</div><div style="font-size:1.3rem;font-weight:700" id="mD1R">—</div></div>
+          <div><div style="font-size:0.7rem;color:var(--text-muted)">Writes</div><div style="font-size:1.3rem;font-weight:700" id="mD1W">—</div></div>
+          <div><div style="font-size:0.7rem;color:var(--text-muted)">Slow</div><div style="font-size:1.3rem;font-weight:700 text-warn" id="mD1Slow">—</div></div>
+          <div><div style="font-size:0.7rem;color:var(--text-muted)">Errors</div><div style="font-size:1.3rem;font-weight:700;color:var(--error)" id="mD1Err">—</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-label">KV Cache</div>
+        <div style="display:flex;gap:1.5rem;margin-top:0.5rem;">
+          <div><div style="font-size:0.7rem;color:var(--text-muted)">Gets</div><div style="font-size:1.3rem;font-weight:700" id="mKVGet">—</div></div>
+          <div><div style="font-size:0.7rem;color:var(--text-muted)">Puts</div><div style="font-size:1.3rem;font-weight:700" id="mKVPut">—</div></div>
+          <div><div style="font-size:0.7rem;color:var(--text-muted)">Errors</div><div style="font-size:1.3rem;font-weight:700;color:var(--error)" id="mKVErr">—</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-label">InventoryDO</div>
+        <div style="display:flex;gap:1.5rem;margin-top:0.5rem;">
+          <div><div style="font-size:0.7rem;color:var(--text-muted)">Active WS</div><div style="font-size:1.3rem;font-weight:700" id="mDOConn">—</div></div>
+          <div><div style="font-size:0.7rem;color:var(--text-muted)">Purchases</div><div style="font-size:1.3rem;font-weight:700" id="mDOPurch">—</div></div>
+          <div><div style="font-size:0.7rem;color:var(--text-muted)">Err</div><div style="font-size:1.3rem;font-weight:700;color:var(--error)" id="mDOErr">—</div></div>
+        </div>
+      </div>
+    </div>
+
+    <p class="section-title">D1 Table Rows</p>
+    <div class="obs-table-wrap" id="d1TablesTable"><div class="empty-state">⟳ Loading…</div></div>
+  </section>
+
+  <!-- ── TRACES ── -->
+  <section class="tab-view" id="view-traces">
+    <div class="log-filters">
+      <select id="traceStatus">
+        <option value="all">All Statuses</option>
+        <option value="ok">OK only</option>
+        <option value="error">Errors only</option>
+      </select>
+      <select id="traceEvent">
+        <option value="all">All Events</option>
+        <option value="CHECKOUT_SUCCEEDED">Checkout Succeeded</option>
+        <option value="CHECKOUT_FAILED">Checkout Failed</option>
+        <option value="PRODUCT_CREATED">Product Created</option>
+      </select>
+      <button class="btn btn-ghost" onclick="loadTraces()">Filter</button>
+    </div>
+
+    <div class="waterfall-wrap" id="waterfallPanel" style="display:none;">
+      <div class="waterfall-title" id="waterfallTitle">Trace Waterfall</div>
+      <div id="waterfallContent"></div>
+      <button class="btn btn-ghost" style="margin-top:0.75rem;font-size:0.75rem;" onclick="closeWaterfall()">✕ Close waterfall</button>
+    </div>
+
+    <div class="obs-table-wrap" id="tracesContainer">
+      <div class="empty-state">⟳ Loading traces…</div>
+    </div>
+  </section>
+
+  <!-- ── HEALTH ── -->
+  <section class="tab-view" id="view-health">
+    <div class="service-cards" id="serviceCards">
+      <div class="card empty-state">⟳ Loading services…</div>
+    </div>
+
+    <p class="section-title">D1 Recent Queries</p>
+    <div class="obs-table-wrap" id="d1RecentQueries"><div class="empty-state">⟳ Loading…</div></div>
+  </section>
+
+  <script src="js/observability.js"></script>
+</body>
+</html>

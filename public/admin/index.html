@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,18 +9,21 @@
   <link rel="stylesheet" href="css/admin.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
+    rel="stylesheet">
 </head>
+
 <body>
 
   <header class="admin-header">
     <div class="admin-title">
-      <h1>🛠️ CloudCart Admin Portal</h1>
+      <h1>CloudCart Admin Portal</h1>
       <p>Product, Orders & Customer Feedback Management Portal</p>
     </div>
 
     <div class="header-actions">
-      <a href="monitoring/" class="nav-link-btn" style="text-decoration: none; color: #fff; background: rgba(59, 130, 246, 0.2); border: 1px solid var(--accent-blue); padding: 0.6rem 1rem; border-radius: 10px; font-weight: 700; display: inline-flex; align-items: center; gap: 0.4rem;">⚡ Monitoring</a>
+      <a href="observability/" class="nav-link-btn"
+        style="text-decoration: none; color: #fff; background: rgba(99, 102, 241, 0.2); border: 1px solid #6366f1; padding: 0.6rem 1rem; border-radius: 10px; font-weight: 700; display: inline-flex; align-items: center; gap: 0.4rem;">Observability</a>
       <a href="/" class="back-link">View Live Customer Page ↗</a>
       <button class="btn-primary" id="addProductBtn">+ Add New Product</button>
     </div>
@@ -118,7 +122,8 @@
     <div class="modal">
       <div class="modal-header">
         <h3>Add New CloudCart Product</h3>
-        <button style="background: transparent; border: none; color: #fff; font-size: 1.5rem; cursor: pointer;" id="closeModalBtn">&times;</button>
+        <button style="background: transparent; border: none; color: #fff; font-size: 1.5rem; cursor: pointer;"
+          id="closeModalBtn">&times;</button>
       </div>
       <form id="addProductForm">
         <div class="form-group">
@@ -161,4 +166,5 @@
 
   <script type="module" src="js/admin.js"></script>
 </body>
+
 </html>

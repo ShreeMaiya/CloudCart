@@ -240,6 +240,7 @@ async function handleWorkerRequest(request, env, ctx, url, path, doStub, request
   if (!path.startsWith("/api")) {
     if (env.ASSETS) {
       if (path === "/admin") return Response.redirect(`${url.origin}/admin/`, 301);
+      if (path === "/admin/monitoring" || path === "/admin/monitoring/") return Response.redirect(`${url.origin}/admin/observability/`, 301);
       return await env.ASSETS.fetch(request);
     }
     return jsonResponse({
@@ -290,7 +291,11 @@ async function handleWorkerRequest(request, env, ctx, url, path, doStub, request
     const newProd = { id, name, category, price: parseFloat(price), stock: parseInt(stock), description, image_url: defaultImg, is_active: 1 };
 
     const doSpan = addSpan(trace, { service: "inventory_do", operation: "do.broadcast", attributes: { type: "PRODUCT_ADDED" } });
-    await doStub.fetch("http://do/sync-broadcast", { method: "POST", body: JSON.stringify({ type: "PRODUCT_ADDED", product: newProd }) });
+    await doStub.fetch("http://do/sync-broadcast", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Trace-ID": trace.traceId, "X-Span-ID": doSpan.spanId, "X-Request-ID": requestId },
+      body: JSON.stringify({ type: "PRODUCT_ADDED", product: newProd })
+    });
     closeSpan(doSpan);
 
     logInfo(`Product created: "${name}" (${category}) @ ₹${price}`, { service: "worker", endpoint: "/api/products", httpStatus: 201, businessEvent: "PRODUCT_CREATED" }, { traceId: trace.traceId, requestId });
@@ -321,7 +326,11 @@ async function handleWorkerRequest(request, env, ctx, url, path, doStub, request
     const updatedProd = { id: prodId, name: newName, category: newCat, price: newPrice, stock: newStock, description: newDesc, image_url: newImg };
 
     const doSpan = addSpan(trace, { service: "inventory_do", operation: "do.broadcast", attributes: { type: "PRODUCT_UPDATED" } });
-    await doStub.fetch("http://do/sync-broadcast", { method: "POST", body: JSON.stringify({ type: "PRODUCT_UPDATED", product: updatedProd, source: "ADMIN" }) });
+    await doStub.fetch("http://do/sync-broadcast", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Trace-ID": trace.traceId, "X-Span-ID": doSpan.spanId, "X-Request-ID": requestId },
+      body: JSON.stringify({ type: "PRODUCT_UPDATED", product: updatedProd, source: "ADMIN" })
+    });
     closeSpan(doSpan);
 
     return jsonResponse({ success: true, product: updatedProd });
@@ -333,7 +342,11 @@ async function handleWorkerRequest(request, env, ctx, url, path, doStub, request
     await env.DB.prepare("UPDATE products SET is_active = 0 WHERE id = ?").bind(prodId).run();
 
     const doSpan = addSpan(trace, { service: "inventory_do", operation: "do.broadcast", attributes: { type: "PRODUCT_DELETED" } });
-    await doStub.fetch("http://do/sync-broadcast", { method: "POST", body: JSON.stringify({ type: "PRODUCT_DELETED", productId: prodId }) });
+    await doStub.fetch("http://do/sync-broadcast", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Trace-ID": trace.traceId, "X-Span-ID": doSpan.spanId, "X-Request-ID": requestId },
+      body: JSON.stringify({ type: "PRODUCT_DELETED", productId: prodId })
+    });
     closeSpan(doSpan);
 
     return jsonResponse({ success: true, message: "Product deleted successfully." });
@@ -344,6 +357,12 @@ async function handleWorkerRequest(request, env, ctx, url, path, doStub, request
     const doSpan = addSpan(trace, { service: "inventory_do", operation: "do.atomic_purchase" });
     const checkoutResp = await doStub.fetch("http://do/atomic-purchase", {
       method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Trace-ID": trace.traceId,
+        "X-Span-ID": doSpan.spanId,
+        "X-Request-ID": requestId
+      },
       body: JSON.stringify(await request.json())
     });
     closeSpan(doSpan, { status: checkoutResp.ok ? "ok" : "error" });
@@ -398,7 +417,11 @@ async function handleWorkerRequest(request, env, ctx, url, path, doStub, request
     const feedbackObj = { id, customer_name, email: email || "", rating: parseInt(rating), comments, created_at: new Date().toISOString() };
 
     const doSpan = addSpan(trace, { service: "inventory_do", operation: "do.broadcast", attributes: { type: "FEEDBACK_SUBMITTED" } });
-    await doStub.fetch("http://do/sync-broadcast", { method: "POST", body: JSON.stringify({ type: "FEEDBACK_SUBMITTED", feedback: feedbackObj }) });
+    await doStub.fetch("http://do/sync-broadcast", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Trace-ID": trace.traceId, "X-Span-ID": doSpan.spanId, "X-Request-ID": requestId },
+      body: JSON.stringify({ type: "FEEDBACK_SUBMITTED", feedback: feedbackObj })
+    });
     closeSpan(doSpan);
 
     logInfo(`Customer feedback submitted: ${rating}★ from ${customer_name}`, { service: "worker", endpoint: "/api/feedback", httpStatus: 201, businessEvent: "FEEDBACK_SUBMITTED" }, { traceId: trace.traceId, requestId });

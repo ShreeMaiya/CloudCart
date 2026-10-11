@@ -77,27 +77,24 @@ This repository includes a fully automated provisioning script (`scripts/setup.j
 
 ---
 
-## ⚡ 3. Monitoring & Observability Surface (`/admin/monitoring/`)
+## ⚡ 3. Observability Platform (`/admin/observability/`)
 
-CloudCart includes a production-grade, Cloudflare-native edge monitoring and observability platform directly accessible from the Admin Portal.
+CloudCart includes a production-grade, Cloudflare-native observability platform built around the three canonical pillars: **Logs**, **Metrics**, and **Traces**, directly accessible from the Admin Portal.
 
-For full architectural, schema, and API documentation, see [OBSERVABILITY.md](OBSERVABILITY.md).
-
-### Metric Honesty & Observability Principles
-- **Zero Fake Metrics**: Production mode contains no seeded telemetry, synthetic traces, or hardcoded fallback numbers (e.g. `p95 || 35`). Unexposed metrics return `UNAVAILABLE` with `value: null`.
-- **Source Classification**: Every metric identifies its explicit provenance: `CLOUDFLARE_NATIVE`, `APPLICATION_INSTRUMENTED`, `CALCULATED`, `UNAVAILABLE`, or `DEMO`.
-- **System Health & Subsystem Probes**: Active probes across all architectural tiers (Worker, D1 SQLite `SELECT 1`, KV read/write/delete, `InventoryDO` `/health-ping`, and WebSockets). Pages and Pages Functions honestly report `UNKNOWN` (`Observability limited`) from within the Worker isolate.
-- **Centralized Logs & Redaction**: Filterable telemetry stream with automatic sanitization of authorization tokens, Cloudflare API tokens, cookies, passwords, and payment details.
-- **Distributed Tracing & Correlation**: Universal `X-Request-ID` propagation across client, worker, database, and actor model with honest, data-driven span waterfalls.
-- **Demo Mode**: Offline demonstration simulation is strictly isolated behind `MONITORING_DEMO_MODE=true` with prominent UI labeling.
+### 3 Pillars & Architectural Principles
+- **Logs Pillar**: Structured dual-write logging (emitting JSON lines to native `console.*` for Cloudflare Logpush/Tail alongside an in-memory queryable buffer) with automatic PII sanitization.
+- **Metrics Pillar**: Honest, real-time request metrics, latency percentiles (p50/p95/p99), business events (checkouts, inventory updates, feedback), and infrastructure telemetry for D1, KV, and Durable Objects.
+- **Traces Pillar**: Distributed end-to-end tracing with W3C `traceparent` support, span trees for D1 queries, KV caching, and Durable Object coordination, rendered via an interactive span waterfall in the Admin UI.
+- **Zero Synthetic Fallbacks**: All metrics reflect actual runtime execution with no fake numbers or synthetic demo mocks.
+- **Universal Correlation**: `X-Trace-ID` and `X-Request-ID` propagate across client, worker, database, and actor model for 1-click log-to-trace debugging.
 
 ### Automated Testing & Verification
 ```bash
-# Run the 67-check automated verification test suite
+# Run the automated observability verification suite
 npm test
 # or
-node scripts/verify_monitoring.js
+node scripts/verify_observability.js
 ```
-*Validates 100% of monitoring endpoints, metric honesty, source classification, PII sanitization, CORS preflight security, and core e-commerce CRUD regressions.*
+*Validates observability health probes, logs buffer, request/business metrics, distributed trace recording, and header propagation.*
 
 
