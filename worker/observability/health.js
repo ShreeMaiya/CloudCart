@@ -14,7 +14,8 @@ export async function checkSubsystems(env) {
   // 1. CloudCart Worker — in-isolate execution probe
   const workerStart = performance.now();
   const probeId = crypto.randomUUID().slice(0, 8); // validates crypto API is functional
-  const workerDuration = Math.round(performance.now() - workerStart);
+  const rawDuration = performance.now() - workerStart;
+  const workerDuration = rawDuration < 1 ? Number(rawDuration.toFixed(2)) : Math.round(rawDuration);
   services.push({
     id: "worker",
     name: "CloudCart Worker",

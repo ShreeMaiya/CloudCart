@@ -3,7 +3,7 @@
 
 const API = "/api/observability";
 let autoRefreshTimer = null;
-let currentTab = "overview";
+let currentTab = "health";
 
 // ─── Init ─────────────────────────────────────────────────────────
 
@@ -51,67 +51,30 @@ function getRange() {
 
 function refreshAll() {
   loadTab(currentTab);
-  loadOverviewHeader(); // header health dot always updates
+  if (currentTab !== "health") loadHeaderHealth();
   document.getElementById("lastUpdated").textContent = "Updated " + new Date().toLocaleTimeString();
 }
 
 function loadTab(tab) {
   switch (tab) {
-    case "overview": loadOverview(); break;
+    case "health":   loadHealth();  break;
     case "logs":     loadLogs();    break;
     case "metrics":  loadMetrics(); break;
     case "traces":   loadTraces();  break;
-    case "health":   loadHealth();  break;
   }
 }
 
-// ─── Overview ────────────────────────────────────────────────────
-
-async function loadOverview() {
-  const range = getRange();
-  const data = await apiFetch(`${API}/overview?range=${range}`);
-  if (!data) return;
-
-  const d = data.data;
-
-  // Health banner
-  const st = d.systemHealth.overallStatus;
-  const orb = document.getElementById("overviewOrb");
-  orb.className = "health-orb " + st.toLowerCase();
-  orb.textContent = st === "HEALTHY" ? "✓" : st === "DEGRADED" ? "!" : "✕";
-  document.getElementById("overviewTitle").textContent = `System ${capitalize(st.toLowerCase())}`;
-  document.getElementById("overviewSub").textContent = `Last health check: ${fmtTime(d.systemHealth.lastChecked)}`;
-  document.getElementById("ovHealthy").textContent   = d.systemHealth.healthyServices;
-  document.getElementById("ovDegraded").textContent  = d.systemHealth.degradedServices;
-  document.getElementById("ovFailed").textContent    = d.systemHealth.failedServices;
-  document.getElementById("ovTotal").textContent     = d.systemHealth.totalServices;
-
-  // Header dot
-  updateHeaderDot(st);
-  document.getElementById("overallStatusText").textContent = `All services: ${st}`;
-
-  // Request metrics
-  document.getElementById("ovReqTotal").textContent = d.requestMetrics.totalRequests ?? "—";
-  document.getElementById("ovErrRate").textContent  = d.requestMetrics.errorRate != null ? d.requestMetrics.errorRate + "%" : "—";
-  document.getElementById("ovAvgLat").textContent   = d.requestMetrics.avgLatencyMs != null ? d.requestMetrics.avgLatencyMs + "ms" : "—";
-  document.getElementById("ovP95Lat").textContent   = d.requestMetrics.p95Ms != null ? d.requestMetrics.p95Ms + "ms" : "—";
-
-  // Business
-  document.getElementById("ovCheckouts").textContent  = d.businessMetrics.checkoutsTotal;
-  document.getElementById("ovCheckoutOk").textContent = d.businessMetrics.checkoutsSucceeded;
-  document.getElementById("ovRevenue").textContent    = "₹" + (d.businessMetrics.revenueTotal || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 });
-  document.getElementById("ovWS").textContent         = d.activeWebSocketConnections;
-}
-
-async function loadOverviewHeader() {
+async function loadHeaderHealth() {
   const data = await apiFetch(`${API}/health`);
   if (!data) return;
   updateHeaderDot(data.data.overallStatus);
-  document.getElementById("overallStatusText").textContent = `All services: ${data.data.overallStatus}`;
+  const statusText = document.getElementById("overallStatusText");
+  if (statusText) statusText.textContent = `All services: ${data.data.overallStatus}`;
 }
 
 function updateHeaderDot(status) {
   const dot = document.getElementById("healthDot");
+  if (!dot) return;
   dot.style.background = status === "HEALTHY" ? "var(--success)" : status === "DEGRADED" ? "var(--warn)" : "var(--error)";
   dot.style.boxShadow = status === "HEALTHY" ? "0 0 8px var(--success)" : status === "DEGRADED" ? "0 0 8px var(--warn)" : "0 0 8px var(--error)";
 }
@@ -345,7 +308,35 @@ async function loadHealth() {
   ]);
 
   if (healthData) {
-    const services = healthData.data.services || [];
+    const d = healthData.data;
+    const st = d.overallStatus;
+
+    // Header dot
+    updateHeaderDot(st);
+    const statusText = document.getElementById("overallStatusText");
+    if (statusText) statusText.textContent = `All services: ${st}`;
+
+    // Health banner
+    const orb = document.getElementById("healthOrb");
+    if (orb) {
+      orb.className = "health-orb " + st.toLowerCase();
+      orb.textContent = st === "HEALTHY" ? "✓" : st === "DEGRADED" ? "!" : "✕";
+    }
+    const titleEl = document.getElementById("healthTitle");
+    if (titleEl) titleEl.textContent = `System ${capitalize(st.toLowerCase())}`;
+    const subEl = document.getElementById("healthSub");
+    if (subEl) subEl.textContent = `Last health check: ${fmtTime(d.timestamp)}`;
+
+    const hHealthy = document.getElementById("hHealthy");
+    if (hHealthy) hHealthy.textContent = d.healthyCount ?? 0;
+    const hDegraded = document.getElementById("hDegraded");
+    if (hDegraded) hDegraded.textContent = d.degradedCount ?? 0;
+    const hFailed = document.getElementById("hFailed");
+    if (hFailed) hFailed.textContent = d.failedCount ?? 0;
+    const hTotal = document.getElementById("hTotal");
+    if (hTotal) hTotal.textContent = d.totalServices ?? (d.services ? d.services.length : 0);
+
+    const services = d.services || [];
     document.getElementById("serviceCards").innerHTML = services.map(s => `
       <div class="service-card ${s.status.toLowerCase()}">
         <div class="svc-header">
@@ -357,7 +348,7 @@ async function loadHealth() {
         </div>
         <div style="font-size:0.78rem;color:var(--text-muted);margin-top:0.25rem">${s.description}</div>
         <div class="svc-meta">
-          ${s.responseTimeMs != null ? `<span>⏱ ${s.responseTimeMs}ms</span>` : ""}
+          ${s.responseTimeMs != null ? `<span>⏱ ${s.responseTimeMs < 1 ? '&lt;1ms' : `${s.responseTimeMs}ms`}</span>` : ""}
           <span>🕐 ${fmtTime(s.lastChecked)}</span>
           ${s.details?.activeConnections != null ? `<span>🔗 ${s.details.activeConnections} WS</span>` : ""}
         </div>

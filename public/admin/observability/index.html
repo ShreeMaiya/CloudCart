@@ -49,46 +49,37 @@
 
   <!-- Tab Nav -->
   <nav class="tab-nav">
-    <button class="tab-btn active" data-tab="overview"><span class="tab-icon">📊</span> Overview</button>
+    <button class="tab-btn active" data-tab="health"><span class="tab-icon">🛡️</span> Health</button>
     <button class="tab-btn" data-tab="logs"><span class="tab-icon">📜</span> Logs</button>
     <button class="tab-btn" data-tab="metrics"><span class="tab-icon">📈</span> Metrics</button>
     <button class="tab-btn" data-tab="traces"><span class="tab-icon">🔗</span> Traces</button>
-    <button class="tab-btn" data-tab="health"><span class="tab-icon">🛡️</span> Health</button>
   </nav>
 
-  <!-- ── OVERVIEW ── -->
-  <section class="tab-view active" id="view-overview">
-    <div class="health-banner" id="overviewBanner">
+  <!-- ── HEALTH ── -->
+  <section class="tab-view active" id="view-health">
+    <div class="health-banner" id="healthBanner">
       <div class="health-left">
-        <div class="health-orb" id="overviewOrb">✓</div>
+        <div class="health-orb healthy" id="healthOrb">✓</div>
         <div>
-          <div class="health-title" id="overviewTitle">System Healthy</div>
-          <div class="health-sub" id="overviewSub">Last checked: —</div>
+          <div class="health-title" id="healthTitle">System Healthy</div>
+          <div class="health-sub" id="healthSub">Last health check: —</div>
         </div>
       </div>
       <div class="health-pills">
-        <div class="health-pill"><div class="health-pill-num text-success" id="ovHealthy">—</div><div class="health-pill-label">Healthy</div></div>
-        <div class="health-pill"><div class="health-pill-num text-warn"    id="ovDegraded">—</div><div class="health-pill-label">Degraded</div></div>
-        <div class="health-pill"><div class="health-pill-num text-error"   id="ovFailed">—</div><div class="health-pill-label">Failed</div></div>
-        <div class="health-pill"><div class="health-pill-num"              id="ovTotal">—</div><div class="health-pill-label">Services</div></div>
+        <div class="health-pill"><div class="health-pill-num text-success" id="hHealthy">—</div><div class="health-pill-label">Healthy</div></div>
+        <div class="health-pill"><div class="health-pill-num text-warn" id="hDegraded">—</div><div class="health-pill-label">Degraded</div></div>
+        <div class="health-pill"><div class="health-pill-num text-error" id="hFailed">—</div><div class="health-pill-label">Failed</div></div>
+        <div class="health-pill"><div class="health-pill-num" id="hTotal">—</div><div class="health-pill-label">Services</div></div>
       </div>
     </div>
 
-    <p class="section-title">Request Metrics</p>
-    <div class="grid-4" id="overviewRequestCards">
-      <div class="card"><div class="card-label">Total Requests</div><div class="card-value" id="ovReqTotal">—</div></div>
-      <div class="card"><div class="card-label">Error Rate</div><div class="card-value" id="ovErrRate">—</div></div>
-      <div class="card"><div class="card-label">Avg Latency</div><div class="card-value" id="ovAvgLat">—</div></div>
-      <div class="card"><div class="card-label">P95 Latency</div><div class="card-value" id="ovP95Lat">—</div></div>
+    <p class="section-title">Infrastructure Services</p>
+    <div class="service-cards" id="serviceCards">
+      <div class="card empty-state">⟳ Loading services…</div>
     </div>
 
-    <p class="section-title">Business Events</p>
-    <div class="grid-4">
-      <div class="card"><div class="card-label">Checkouts Total</div><div class="card-value" id="ovCheckouts">—</div></div>
-      <div class="card"><div class="card-label">Checkout Success</div><div class="card-value text-success" id="ovCheckoutOk">—</div></div>
-      <div class="card"><div class="card-label">Revenue (session)</div><div class="card-value" id="ovRevenue">—</div></div>
-      <div class="card"><div class="card-label">Active WebSockets</div><div class="card-value" id="ovWS">—</div></div>
-    </div>
+    <p class="section-title">D1 Recent Queries</p>
+    <div class="obs-table-wrap" id="d1RecentQueries"><div class="empty-state">⟳ Loading…</div></div>
   </section>
 
   <!-- ── LOGS ── -->
@@ -191,16 +182,6 @@
     <div class="obs-table-wrap" id="tracesContainer">
       <div class="empty-state">⟳ Loading traces…</div>
     </div>
-  </section>
-
-  <!-- ── HEALTH ── -->
-  <section class="tab-view" id="view-health">
-    <div class="service-cards" id="serviceCards">
-      <div class="card empty-state">⟳ Loading services…</div>
-    </div>
-
-    <p class="section-title">D1 Recent Queries</p>
-    <div class="obs-table-wrap" id="d1RecentQueries"><div class="empty-state">⟳ Loading…</div></div>
   </section>
 
   <script src="js/observability.js"></script>
