@@ -4,7 +4,7 @@
 
 import { checkSubsystems } from "./health.js";
 import { getRequestMetrics, getBusinessMetrics } from "./metrics.js";
-import { getInfraMetrics } from "./d1Telemetry.js";
+import { getInfraMetrics } from "./infraTelemetry.js";
 import { getLogs, getLogById } from "./logManager.js";
 import { getTraces, getTraceById } from "./tracing.js";
 

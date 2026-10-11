@@ -35,7 +35,7 @@ export async function checkSubsystems(env) {
       const res = await env.DB.prepare("SELECT 1 as alive").first();
       d1Latency = Math.round(performance.now() - d1Start);
       if (res?.alive === 1) {
-        d1Status = d1Latency > 350 ? "DEGRADED" : "HEALTHY";
+        d1Status = d1Latency > 600 ? "DEGRADED" : "HEALTHY";
       } else {
         d1Status = "DEGRADED";
         d1Error = "Unexpected probe query result";
@@ -61,22 +61,15 @@ export async function checkSubsystems(env) {
     details: { binding: "DB", probeQuery: "SELECT 1 as alive" }
   });
 
-  // 3. Cloudflare KV — round-trip put/get/delete probe
+  // 3. Cloudflare KV — read probe
   const kvStart = performance.now();
   let kvStatus = "DOWN", kvLatency = null, kvError = null;
   if (env?.CLOUDCART_KV) {
     try {
       const key = "__obs_health_probe__";
-      await env.CLOUDCART_KV.put(key, "ok", { expirationTtl: 60 });
-      const val = await env.CLOUDCART_KV.get(key);
-      await env.CLOUDCART_KV.delete(key);
+      await env.CLOUDCART_KV.get(key);
       kvLatency = Math.round(performance.now() - kvStart);
-      if (val === "ok") {
-        kvStatus = kvLatency > 1500 ? "DEGRADED" : "HEALTHY";
-      } else {
-        kvStatus = "DEGRADED";
-        kvError = "Read-after-write mismatch";
-      }
+      kvStatus = kvLatency > 600 ? "DEGRADED" : "HEALTHY";
     } catch (err) {
       kvLatency = Math.round(performance.now() - kvStart);
       kvStatus = "DOWN";

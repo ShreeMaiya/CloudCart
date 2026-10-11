@@ -1,0 +1,5 @@
+# Cloudflare Pages Redirects
+# Permanently redirect all old /admin/monitoring URLs to /admin/observability/
+/admin/monitoring/* /admin/observability/ 301
+/admin/monitoring/  /admin/observability/ 301
+/admin/monitoring   /admin/observability/ 301

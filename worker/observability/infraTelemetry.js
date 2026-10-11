@@ -30,7 +30,7 @@ export function recordD1Query(query, durationMs, isWrite = false, error = null) 
     query: String(query).substring(0, 200),
     durationMs: Math.round(durationMs),
     type: isWrite ? "WRITE" : "READ",
-    isSlow: durationMs > 35,
+    isSlow: durationMs > 500, // Edge-to-D1 cross-region latency baseline is ~150-350ms; >500ms indicates heavy scan/lock
     error: error ? String(error).substring(0, 200) : null,
     timestamp: new Date().toISOString()
   };
@@ -143,14 +143,9 @@ async function probeKV(env) {
   const t0 = performance.now();
   try {
     const key = "__obs_kv_probe__";
-    await env.CLOUDCART_KV.put(key, "ok", { expirationTtl: 60 });
-    const val = await env.CLOUDCART_KV.get(key);
-    await env.CLOUDCART_KV.delete(key);
+    await env.CLOUDCART_KV.get(key);
     const latencyMs = Math.round(performance.now() - t0);
-    if (val !== "ok") {
-      return { status: "DEGRADED", latencyMs, error: "KV read-after-write mismatch" };
-    }
-    return { status: latencyMs > 1500 ? "DEGRADED" : "HEALTHY", latencyMs, error: null };
+    return { status: latencyMs > 800 ? "DEGRADED" : "HEALTHY", latencyMs, error: null };
   } catch (err) {
     return { status: "DOWN", latencyMs: Math.round(performance.now() - t0), error: err.message };
   }

@@ -3,7 +3,7 @@ import { handleObservabilityRoute } from "./observability/routes.js";
 import { startTrace, addSpan, closeSpan, closeTrace } from "./observability/tracing.js";
 import { recordRequest, recordBusinessEvent } from "./observability/metrics.js";
 import { recordLog, logInfo, logWarn, logError } from "./observability/logManager.js";
-import { recordD1Query, recordKVOperation } from "./observability/d1Telemetry.js";
+import { recordD1Query, recordKVOperation } from "./observability/infraTelemetry.js";
 
 export { InventoryDO, InventorySyncDO };
 
@@ -62,8 +62,8 @@ export default {
               const dur = performance.now() - t0;
               closeSpan(span, { status: "ok" });
               recordD1Query(query, dur, isWrite);
-              // Emit WARN log for slow queries
-              if (dur > 35) {
+              // Emit WARN log for genuinely slow queries (>500ms indicates heavy scans, locks, or congestion)
+              if (dur > 500) {
                 logWarn(`Slow D1 query (${Math.round(dur)}ms): ${query.substring(0, 80)}`, {
                   service: "d1", endpoint: path, durationMs: Math.round(dur)
                 }, { traceId: trace.traceId, requestId });

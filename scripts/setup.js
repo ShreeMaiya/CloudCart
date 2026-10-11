@@ -142,6 +142,10 @@ main = "worker/index.js"
 compatibility_date = "2024-08-01"
 compatibility_flags = ["nodejs_compat"]
 
+# Enable Smart Placement to run Worker close to D1 and minimize cross-region query RTT
+[placement]
+mode = "smart"
+
 # D1 Database Binding (auto-provisioned)
 [[d1_databases]]
 binding = "DB"
