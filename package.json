@@ -6,7 +6,8 @@
   "main": "worker/index.js",
   "scripts": {
     "dev": "wrangler dev --port 8787",
-    "db:setup": "wrangler d1 execute DB --local --file=./schema.sql",
+    "db:setup": "wrangler d1 execute DB --local --file=./schema.sql && wrangler d1 execute DB --local --file=./initial_catalog.sql",
+    "db:catalog": "wrangler d1 execute DB --local --file=./initial_catalog.sql",
     "deploy": "node scripts/setup.js",
     "deploy:dry-run": "node scripts/setup.js --dry-run",
     "test": "node scripts/verify_observability.js",

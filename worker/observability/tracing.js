@@ -111,7 +111,7 @@ export function closeTrace(trace, response, { businessEvent = null } = {}) {
     timestamp: new Date(trace.startTime).toISOString(),
     epochMs: trace.startTime,
     businessEvent: businessEvent || null,
-    hasError: httpStatus >= 500,
+    hasError: httpStatus >= 400 || allSpans.some(s => s.status === "error"),
     spanCount: allSpans.length,
     spans: allSpans
   };

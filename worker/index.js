@@ -175,7 +175,10 @@ export default {
 
       recordRequest({ traceId: trace.traceId, requestId, endpoint: normalizedEndpoint, method: request.method, status: httpStatus, durationMs, businessEvent, error: errorText });
 
-      if (businessEvent) recordBusinessEvent(businessEvent);
+      if (businessEvent) {
+        const rev = (businessEvent === "CHECKOUT_SUCCEEDED" && response._revenue) ? response._revenue : 0;
+        recordBusinessEvent(businessEvent, { amount: rev, traceId: trace.traceId });
+      }
 
       // Structured log for this request
       const logLevel = httpStatus >= 500 ? "ERROR" : httpStatus >= 400 ? "WARN" : "INFO";
@@ -277,8 +280,19 @@ async function handleWorkerRequest(request, env, ctx, url, path, doStub, request
     const body = await request.json();
     const { name, category, price, stock, description, image_url } = body;
 
-    if (!name || !category || price === undefined || stock === undefined) {
-      return jsonResponse({ success: false, error: "Missing required product fields." }, 400);
+    const trimmedName = typeof name === "string" ? name.trim() : "";
+    const trimmedCat = typeof category === "string" ? category.trim() : "";
+    const p = parseFloat(price);
+    const s = Number(stock);
+
+    if (!trimmedName || !trimmedCat) {
+      return jsonResponse({ success: false, error: "Name and category are required." }, 400);
+    }
+    if (isNaN(p) || p <= 0) {
+      return jsonResponse({ success: false, error: "Price must be a positive number." }, 400);
+    }
+    if (!Number.isInteger(s) || s < 0) {
+      return jsonResponse({ success: false, error: "Stock must be a non-negative integer (0 or greater)." }, 400);
     }
 
     const id = "prod-" + Date.now();
@@ -286,9 +300,9 @@ async function handleWorkerRequest(request, env, ctx, url, path, doStub, request
 
     await env.DB.prepare(
       "INSERT INTO products (id, name, category, price, stock, description, image_url, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, 1)"
-    ).bind(id, name, category, parseFloat(price), parseInt(stock), description || "", defaultImg).run();
+    ).bind(id, trimmedName, trimmedCat, p, s, description || "", defaultImg).run();
 
-    const newProd = { id, name, category, price: parseFloat(price), stock: parseInt(stock), description, image_url: defaultImg, is_active: 1 };
+    const newProd = { id, name: trimmedName, category: trimmedCat, price: p, stock: s, description, image_url: defaultImg, is_active: 1 };
 
     const doSpan = addSpan(trace, { service: "inventory_do", operation: "do.broadcast", attributes: { type: "PRODUCT_ADDED" } });
     await doStub.fetch("http://do/sync-broadcast", {
@@ -298,7 +312,7 @@ async function handleWorkerRequest(request, env, ctx, url, path, doStub, request
     });
     closeSpan(doSpan);
 
-    logInfo(`Product created: "${name}" (${category}) @ ₹${price}`, { service: "worker", endpoint: "/api/products", httpStatus: 201, businessEvent: "PRODUCT_CREATED" }, { traceId: trace.traceId, requestId });
+    logInfo(`Product created: "${trimmedName}" (${trimmedCat}) @ ₹${p}`, { service: "worker", endpoint: "/api/products", httpStatus: 201, businessEvent: "PRODUCT_CREATED" }, { traceId: trace.traceId, requestId });
 
     return jsonResponse({ success: true, product: newProd }, 201);
   }
@@ -312,11 +326,27 @@ async function handleWorkerRequest(request, env, ctx, url, path, doStub, request
     const existing = await env.DB.prepare("SELECT * FROM products WHERE id = ?").bind(prodId).first();
     if (!existing) return jsonResponse({ success: false, error: "Product not found." }, 404);
 
-    const newPrice = price !== undefined ? parseFloat(price) : existing.price;
-    const newStock = stock !== undefined ? parseInt(stock) : existing.stock;
-    const newName = name || existing.name;
-    const newCat = category || existing.category;
-    const newDesc = description !== undefined ? description : existing.description;
+    let newPrice = existing.price;
+    if (price !== undefined) {
+      const p = parseFloat(price);
+      if (isNaN(p) || p <= 0) {
+        return jsonResponse({ success: false, error: "Price must be a positive number." }, 400);
+      }
+      newPrice = p;
+    }
+
+    let newStock = existing.stock;
+    if (stock !== undefined) {
+      const s = Number(stock);
+      if (!Number.isInteger(s) || s < 0) {
+        return jsonResponse({ success: false, error: "Stock must be a non-negative integer (0 or greater)." }, 400);
+      }
+      newStock = s;
+    }
+
+    const newName = (typeof name === "string" && name.trim()) ? name.trim() : existing.name;
+    const newCat = (typeof category === "string" && category.trim()) ? category.trim() : existing.category;
+    const newDesc = description !== undefined ? String(description) : existing.description;
     const newImg = image_url || existing.image_url;
 
     await env.DB.prepare(
@@ -339,6 +369,12 @@ async function handleWorkerRequest(request, env, ctx, url, path, doStub, request
   // 7. Products — DELETE (soft delete)
   if (path.startsWith("/api/products/") && request.method === "DELETE") {
     const prodId = path.split("/")[3];
+
+    const existing = await env.DB.prepare("SELECT id, name FROM products WHERE id = ? AND is_active = 1").bind(prodId).first();
+    if (!existing) {
+      return jsonResponse({ success: false, error: "Product not found or already deleted." }, 404);
+    }
+
     await env.DB.prepare("UPDATE products SET is_active = 0 WHERE id = ?").bind(prodId).run();
 
     const doSpan = addSpan(trace, { service: "inventory_do", operation: "do.broadcast", attributes: { type: "PRODUCT_DELETED" } });
@@ -366,7 +402,18 @@ async function handleWorkerRequest(request, env, ctx, url, path, doStub, request
       body: JSON.stringify(await request.json())
     });
     closeSpan(doSpan, { status: checkoutResp.ok ? "ok" : "error" });
-    return checkoutResp;
+
+    let revenue = 0;
+    if (checkoutResp.ok) {
+      try {
+        const bodyClone = await checkoutResp.clone().json();
+        if (bodyClone.totalAmount) revenue = Number(bodyClone.totalAmount) || 0;
+      } catch (_) {}
+    }
+
+    const respWithRev = new Response(checkoutResp.body, checkoutResp);
+    respWithRev._revenue = revenue;
+    return respWithRev;
   }
 
   // 9. Orders (Admin)
@@ -405,16 +452,23 @@ async function handleWorkerRequest(request, env, ctx, url, path, doStub, request
     const body = await request.json();
     const { customer_name, email, rating, comments } = body;
 
-    if (!customer_name || !rating || !comments) {
-      return jsonResponse({ success: false, error: "Missing required feedback fields." }, 400);
+    const trimmedName = typeof customer_name === "string" ? customer_name.trim() : "";
+    const trimmedComments = typeof comments === "string" ? comments.trim() : "";
+    const r = Number(rating);
+
+    if (!trimmedName || !trimmedComments) {
+      return jsonResponse({ success: false, error: "Customer name and comments are required." }, 400);
+    }
+    if (!Number.isInteger(r) || r < 1 || r > 5) {
+      return jsonResponse({ success: false, error: "Rating must be an integer between 1 and 5." }, 400);
     }
 
     const id = "fb-" + Date.now();
     await env.DB.prepare(
       "INSERT INTO feedback (id, customer_name, email, rating, comments) VALUES (?, ?, ?, ?, ?)"
-    ).bind(id, customer_name, email || "", parseInt(rating), comments).run();
+    ).bind(id, trimmedName, email || "", r, trimmedComments).run();
 
-    const feedbackObj = { id, customer_name, email: email || "", rating: parseInt(rating), comments, created_at: new Date().toISOString() };
+    const feedbackObj = { id, customer_name: trimmedName, email: email || "", rating: r, comments: trimmedComments, created_at: new Date().toISOString() };
 
     const doSpan = addSpan(trace, { service: "inventory_do", operation: "do.broadcast", attributes: { type: "FEEDBACK_SUBMITTED" } });
     await doStub.fetch("http://do/sync-broadcast", {

@@ -63,7 +63,34 @@ async function loadProducts() {
   `;
 
   products = await fetchProducts(activeCategory, searchQuery);
+  syncCartWithLiveProducts();
   renderProducts();
+  updateCartUI();
+}
+
+function syncCartWithLiveProducts() {
+  if (!products || products.length === 0 || cart.length === 0) return;
+  let changed = false;
+  cart.forEach(item => {
+    const live = products.find(p => p.id === item.id);
+    if (live) {
+      if (live.price !== item.price) {
+        item.price = live.price;
+        changed = true;
+      }
+      if (live.name && live.name !== item.name) {
+        item.name = live.name;
+        changed = true;
+      }
+      if (live.image_url && live.image_url !== item.image_url) {
+        item.image_url = live.image_url;
+        changed = true;
+      }
+    }
+  });
+  if (changed) {
+    saveCart();
+  }
 }
 
 // Format currency in INR (₹)
@@ -146,10 +173,18 @@ window.addToCart = (productId) => {
   showToast(`Added ${product.name} to cart`, 'success');
 };
 
-function saveCart() {
+let kvSyncTimeout = null;
+function saveCart(immediate = false) {
   localStorage.setItem('cloudcart_cart', JSON.stringify(cart));
-  // Asynchronously sync cart with Cloudflare KV
-  saveKVCart(sessionId, cart);
+  clearTimeout(kvSyncTimeout);
+  if (immediate) {
+    saveKVCart(sessionId, cart);
+  } else {
+    // Debounce KV writes by 1.5s to preserve Cloudflare free-tier quota (1,000 writes/day)
+    kvSyncTimeout = setTimeout(() => {
+      saveKVCart(sessionId, cart);
+    }, 1500);
+  }
 }
 
 function updateCartUI() {
@@ -171,14 +206,16 @@ function updateCartUI() {
   let total = 0;
 
   cartItemsList.innerHTML = cart.map(item => {
-    const itemTotal = item.price * item.quantity;
+    const liveProd = products.find(p => p.id === item.id);
+    const itemPrice = liveProd ? liveProd.price : item.price;
+    const itemTotal = itemPrice * item.quantity;
     total += itemTotal;
     return `
       <div class="cart-item">
         <img src="${item.image_url}" alt="${item.name}" />
         <div class="cart-item-details">
           <div class="cart-item-title">${item.name}</div>
-          <div class="cart-item-price">${formatCurrency(item.price)}</div>
+          <div class="cart-item-price">${formatCurrency(itemPrice)}</div>
           <div class="cart-qty-controls">
             <button class="btn-qty" onclick="window.updateQty('${item.id}', -1)">-</button>
             <span style="font-weight: 700;">${item.quantity}</span>
@@ -282,6 +319,7 @@ function setupEventListeners() {
   checkoutBtn.addEventListener('click', async () => {
     if (cart.length === 0) return;
 
+    syncCartWithLiveProducts();
     checkoutBtn.disabled = true;
     checkoutBtn.textContent = 'Processing Purchase...';
 
@@ -290,7 +328,7 @@ function setupEventListeners() {
     if (res.success) {
       showToast(`🎉 Order Placed! ID: ${res.orderId}`, 'success');
       cart = [];
-      saveCart();
+      saveCart(true);
       updateCartUI();
       cartDrawerOverlay.classList.remove('active');
     } else {

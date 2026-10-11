@@ -103,7 +103,7 @@ function renderProductsTable() {
         </div>
       </td>
       <td>
-        <span class="stock-badge ${prod.stock === 0 ? 'out-stock' : prod.stock <= 5 ? 'low-stock' : 'in-stock'}">
+        <span id="admin-badge-${prod.id}" class="stock-badge ${prod.stock === 0 ? 'out-stock' : prod.stock <= 5 ? 'low-stock' : 'in-stock'}">
           ${prod.stock === 0 ? 'Out of Stock' : prod.stock <= 5 ? 'Low Stock' : 'Active'}
         </span>
       </td>
@@ -167,6 +167,15 @@ function renderFeedbackTable() {
   }).join('');
 }
 
+function updateStockBadge(prodId, stock) {
+  const badgeEl = document.getElementById(`admin-badge-${prodId}`);
+  if (!badgeEl) return;
+  const isOut = stock === 0;
+  const isLow = stock > 0 && stock <= 5;
+  badgeEl.className = `stock-badge ${isOut ? 'out-stock' : isLow ? 'low-stock' : 'in-stock'}`;
+  badgeEl.textContent = isOut ? 'Out of Stock' : isLow ? 'Low Stock' : 'Active';
+}
+
 window.adjustStock = async (prodId, delta) => {
   const prod = products.find(p => p.id === prodId);
   if (!prod) return;
@@ -174,6 +183,7 @@ window.adjustStock = async (prodId, delta) => {
   const newStock = Math.max(0, prod.stock + delta);
   prod.stock = newStock;
   document.getElementById(`admin-stock-${prodId}`).textContent = newStock;
+  updateStockBadge(prodId, newStock);
 
   try {
     const res = await fetch(`${API_BASE}/products/${prodId}`, {
@@ -265,8 +275,11 @@ function handleRealtimeSync(event) {
   if (event.type === 'ACTIVE_USERS_COUNT') {
     activeUsersEl.textContent = event.activeConnections;
   } else if (event.type === 'PRODUCT_STOCK_UPDATED') {
+    const prod = products.find(p => p.id === event.productId);
+    if (prod) prod.stock = event.newStock;
     const stockEl = document.getElementById(`admin-stock-${event.productId}`);
     if (stockEl) stockEl.textContent = event.newStock;
+    updateStockBadge(event.productId, event.newStock);
     loadMetrics();
   } else if (event.type === 'ORDER_PLACED') {
     if (event.order) {

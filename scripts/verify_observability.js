@@ -71,6 +71,52 @@ async function verifyObservability() {
     if (!requestId) throw new Error("Missing X-Request-ID header");
   });
 
+  // 7. Atomic Checkout Validation Guard (Empty cart & Invalid quantity)
+  await check("Checkout Validation Guard (Empty Cart -> 400)", async () => {
+    const res = await fetch(`${BASE_URL}/api/checkout`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items: [] })
+    });
+    if (res.status !== 400) throw new Error(`Expected 400 for empty cart, got ${res.status}`);
+  });
+
+  await check("Checkout Validation Guard (Negative Quantity -> 400)", async () => {
+    const res = await fetch(`${BASE_URL}/api/checkout`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items: [{ id: "prod-1", quantity: -5 }] })
+    });
+    if (res.status !== 400) throw new Error(`Expected 400 for negative quantity, got ${res.status}`);
+  });
+
+  // 8. Product Validation Guards
+  await check("Product Creation Guard (Negative Price/Stock -> 400)", async () => {
+    const res = await fetch(`${BASE_URL}/api/products`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Bad Prod", category: "Test", price: -10, stock: -5 })
+    });
+    if (res.status !== 400) throw new Error(`Expected 400 for invalid price/stock, got ${res.status}`);
+  });
+
+  await check("Product Deletion Guard (Nonexistent Product -> 404)", async () => {
+    const res = await fetch(`${BASE_URL}/api/products/nonexistent-id-99999`, {
+      method: "DELETE"
+    });
+    if (res.status !== 404) throw new Error(`Expected 404 for nonexistent product, got ${res.status}`);
+  });
+
+  // 9. Feedback Validation Guard
+  await check("Feedback Rating Guard (Rating Out of Range -> 400)", async () => {
+    const res = await fetch(`${BASE_URL}/api/feedback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ customer_name: "Tester", comments: "Good", rating: 7 })
+    });
+    if (res.status !== 400) throw new Error(`Expected 400 for rating > 5, got ${res.status}`);
+  });
+
   console.log(`\nResults: ${passed} passed, ${failed} failed.\n`);
   if (failed > 0) process.exit(1);
 }

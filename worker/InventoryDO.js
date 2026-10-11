@@ -206,29 +206,94 @@ export class InventoryDO {
       }), { status: 400, headers: { "Content-Type": "application/json" } });
     }
 
-    // Single-threaded execution inside Durable Object prevents race conditions
-    // Check current stock levels from D1
+    // 1. Consolidate duplicate product IDs and validate quantities
+    const consolidatedCart = new Map();
+
+    for (const rawItem of items) {
+      if (!rawItem || typeof rawItem !== "object") {
+        this.purchaseErrors++;
+        return new Response(JSON.stringify({
+          success: false,
+          error: "Cart contains an invalid item."
+        }), { status: 400, headers: { "Content-Type": "application/json" } });
+      }
+
+      const itemId = String(rawItem.id || "").trim();
+      if (!itemId) {
+        this.purchaseErrors++;
+        return new Response(JSON.stringify({
+          success: false,
+          error: "Cart item missing product ID."
+        }), { status: 400, headers: { "Content-Type": "application/json" } });
+      }
+
+      const qty = Number(rawItem.quantity);
+      if (!Number.isInteger(qty) || qty <= 0) {
+        this.purchaseErrors++;
+        return new Response(JSON.stringify({
+          success: false,
+          error: `Invalid quantity for item "${rawItem.name || itemId}". Quantity must be a positive integer.`
+        }), { status: 400, headers: { "Content-Type": "application/json" } });
+      }
+
+      if (consolidatedCart.has(itemId)) {
+        const existing = consolidatedCart.get(itemId);
+        existing.quantity += qty;
+      } else {
+        consolidatedCart.set(itemId, {
+          id: itemId,
+          name: String(rawItem.name || itemId),
+          quantity: qty
+        });
+      }
+    }
+
+    // 2. Validate consolidated quantities against live D1 stock
     const validationErrors = [];
-    const updatedProducts = [];
+    const verifiedItems = [];
+    let totalAmount = 0;
+    let totalItems = 0;
     const summaryParts = [];
 
-    for (const item of items) {
-      const prod = await this.env.DB.prepare("SELECT * FROM products WHERE id = ?").bind(item.id).first();
+    for (const [productId, cartItem] of consolidatedCart.entries()) {
+      const prod = await this.env.DB.prepare(
+        "SELECT id, name, price, stock, is_active FROM products WHERE id = ?"
+      ).bind(productId).first();
+
       if (!prod) {
-        validationErrors.push(`Product ${item.name || item.id} not found.`);
+        validationErrors.push(`Product "${cartItem.name}" not found.`);
         continue;
       }
-      if (prod.stock < item.quantity) {
-        validationErrors.push(`Insufficient stock for ${prod.name}. Available: ${prod.stock}, Requested: ${item.quantity}`);
-      } else {
-        updatedProducts.push({ prod, requestedQuantity: item.quantity });
-        summaryParts.push(`${item.quantity}x ${prod.name}`);
+
+      if (!prod.is_active) {
+        validationErrors.push(`Product "${prod.name}" is no longer available.`);
+        continue;
       }
+
+      if (prod.stock < cartItem.quantity) {
+        validationErrors.push(
+          `Insufficient stock for "${prod.name}". Available: ${prod.stock}, Requested: ${cartItem.quantity}.`
+        );
+        continue;
+      }
+
+      const newStock = prod.stock - cartItem.quantity;
+      const itemTotal = prod.price * cartItem.quantity;
+
+      totalAmount += itemTotal;
+      totalItems += cartItem.quantity;
+      summaryParts.push(`${cartItem.quantity}x ${prod.name}`);
+
+      verifiedItems.push({
+        prod,
+        requestedQuantity: cartItem.quantity,
+        newStock
+      });
     }
 
     if (validationErrors.length > 0) {
       this.purchaseErrors++;
-      this.emitLog("warn", `Atomic purchase stock validation failed: ${validationErrors.join("; ")}`, {
+      this.emitLog("warn", `Atomic purchase validation failed: ${validationErrors.join("; ")}`, {
         errors: validationErrors,
         customerName: customerName || "Guest"
       }, traceMeta);
@@ -238,20 +303,49 @@ export class InventoryDO {
       }), { status: 400, headers: { "Content-Type": "application/json" } });
     }
 
-    // Deduct stock in D1 atomically
-    let totalAmount = 0;
-    let totalItems = 0;
+    // 3. Prepare atomic multi-statement database transaction via D1 batch()
+    const orderId = 'ord-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+    const summaryText = summaryParts.join(", ");
+    const finalCustomerName = (typeof customerName === "string" && customerName.trim())
+      ? customerName.trim()
+      : "Guest Customer";
 
-    for (const { prod, requestedQuantity } of updatedProducts) {
-      const newStock = prod.stock - requestedQuantity;
-      totalAmount += prod.price * requestedQuantity;
-      totalItems += requestedQuantity;
+    const batchStatements = [];
 
-      await this.env.DB.prepare(
-        "UPDATE products SET stock = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
-      ).bind(newStock, prod.id).run();
+    // All stock deductions with safety check against negative stock
+    for (const { prod, requestedQuantity } of verifiedItems) {
+      batchStatements.push(
+        this.env.DB.prepare(
+          "UPDATE products SET stock = stock - ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND stock >= ?"
+        ).bind(requestedQuantity, prod.id, requestedQuantity)
+      );
+    }
 
-      // Broadcast instant stock change to all active customers & admin dashboard
+    // Order insertion in the exact same transaction
+    batchStatements.push(
+      this.env.DB.prepare(
+        "INSERT INTO orders (id, customer_name, items_summary, total_amount, items_count) VALUES (?, ?, ?, ?, ?)"
+      ).bind(orderId, finalCustomerName, summaryText, totalAmount, totalItems)
+    );
+
+    // Commit all changes atomically — if any statement fails, the entire transaction rolls back
+    try {
+      await this.env.DB.batch(batchStatements);
+    } catch (dbErr) {
+      this.purchaseErrors++;
+      this.emitLog("error", `Database transaction failed during atomic checkout: ${dbErr.message}`, {
+        error: dbErr.message,
+        orderId,
+        customerName: finalCustomerName
+      }, traceMeta);
+      return new Response(JSON.stringify({
+        success: false,
+        error: "Checkout transaction failed. Stock was not modified."
+      }), { status: 500, headers: { "Content-Type": "application/json" } });
+    }
+
+    // 4. Post-commit: Broadcast real-time updates to WebSocket clients and Admin
+    for (const { prod, newStock } of verifiedItems) {
       this.broadcast({
         type: "PRODUCT_STOCK_UPDATED",
         productId: prod.id,
@@ -261,16 +355,6 @@ export class InventoryDO {
       });
     }
 
-    // Record order in D1
-    const orderId = 'ord-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
-    const summaryText = summaryParts.join(", ");
-    const finalCustomerName = customerName || "Guest Customer";
-
-    await this.env.DB.prepare(
-      "INSERT INTO orders (id, customer_name, items_summary, total_amount, items_count) VALUES (?, ?, ?, ?, ?)"
-    ).bind(orderId, finalCustomerName, summaryText, totalAmount, totalItems).run();
-
-    // Broadcast Order Placed Event to Admin
     this.broadcast({
       type: "ORDER_PLACED",
       order: {

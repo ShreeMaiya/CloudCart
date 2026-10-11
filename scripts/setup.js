@@ -230,12 +230,21 @@ if (DRY_RUN) {
   process.exit(0);
 }
 
-// Step 1: Apply D1 schema migration (CREATE TABLE + seed data)
-console.log("\n📦 Running D1 schema migration on remote database...");
+// Step 1: Apply D1 database schema (tables & indexes only — no seed data to prevent overwriting production data)
+console.log("\n📦 Applying D1 database schema on remote database...");
 await runWrangler([
   "d1", "execute", "DB",
   "--remote",
   "--file", resolve("schema.sql"),
+  "--config", resolve("wrangler.toml"),
+]);
+
+// Step 1b: Apply initial catalog safely using INSERT OR IGNORE (existing catalog records are never overwritten)
+console.log("\n📦 Populating initial product catalog (non-destructive INSERT OR IGNORE)...");
+await runWrangler([
+  "d1", "execute", "DB",
+  "--remote",
+  "--file", resolve("initial_catalog.sql"),
   "--config", resolve("wrangler.toml"),
 ]);
 

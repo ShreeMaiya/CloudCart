@@ -34,11 +34,11 @@ function setupControls() {
 
   document.getElementById("autoRefreshSelect").addEventListener("change", e => {
     clearInterval(autoRefreshTimer);
+    autoRefreshTimer = null;
     const ms = parseInt(e.target.value, 10);
     if (ms > 0) autoRefreshTimer = setInterval(() => refreshAll(), ms);
   });
-  // Start default auto-refresh (30s)
-  autoRefreshTimer = setInterval(() => refreshAll(), 30000);
+  // Auto-refresh defaults to Off to preserve free-tier KV & D1 quotas
 
   document.getElementById("logSearch").addEventListener("keydown", e => {
     if (e.key === "Enter") loadLogs();
@@ -274,7 +274,7 @@ window.loadTraces = async function() {
     <table class="obs-table trace-row">
       <thead><tr>
         <th>Trace ID</th><th>Endpoint</th><th>Method</th><th>Status</th>
-        <th>Duration</th><th>Spans</th><th>Business Event</th><th>Time</th>
+        <th>Duration</th><th>Spans</th><th>Business Event</th><th>Time</th><th>Action</th>
       </tr></thead>
       <tbody>${traces.map(t => `<tr onclick="openWaterfall('${t.traceId}')" title="Click to view waterfall">
         <td class="mono" style="color:var(--accent);font-size:0.7rem">${t.traceId.substring(0, 12)}…</td>
@@ -285,6 +285,7 @@ window.loadTraces = async function() {
         <td style="color:var(--text-muted)">${t.spanCount}</td>
         <td>${t.businessEvent ? `<span class="badge badge-info" style="font-size:0.68rem">${t.businessEvent}</span>` : ""}</td>
         <td style="color:var(--text-muted)">${fmtTime(t.timestamp)}</td>
+        <td><button class="btn btn-ghost" style="padding:0.2rem 0.5rem;font-size:0.7rem;" onclick="event.stopPropagation();openWaterfall('${t.traceId}')">Waterfall</button></td>
       </tr>`).join("")}</tbody>
     </table>`;
 };
