@@ -1,9 +1,11 @@
 /**
  * CloudCart Observability Verification Suite
- * Validates the 3 pillars (Logs, Metrics, Traces), Health probes, and Admin routes.
+ * Checks observability access and Cloudflare-native telemetry routes.
  */
 
 const BASE_URL = process.env.BASE_URL || "http://127.0.0.1:8787";
+const OBSERVABILITY_API_KEY = process.env.OBSERVABILITY_API_KEY || "";
+const HEADERS = OBSERVABILITY_API_KEY ? { "X-Admin-Key": OBSERVABILITY_API_KEY } : {};
 
 async function verifyObservability() {
   console.log(`\n🔍 Verifying CloudCart Observability at ${BASE_URL}...\n`);
@@ -24,50 +26,50 @@ async function verifyObservability() {
 
   // 1. Health Probe
   await check("Health Endpoint (/api/observability/health)", async () => {
-    const res = await fetch(`${BASE_URL}/api/observability/health`);
+    const res = await fetch(`${BASE_URL}/api/observability/health`, { headers: HEADERS });
+    if (!OBSERVABILITY_API_KEY) {
+      if (res.status !== 401) throw new Error(`Expected unauthenticated access to be denied, got HTTP ${res.status}`);
+      return;
+    }
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    if (!data.status) throw new Error("Missing status property");
+    if (!Array.isArray(data.data?.services)) throw new Error("Missing service health list");
   });
 
-  // 2. Overview Endpoint
-  await check("Overview Endpoint (/api/observability/overview)", async () => {
-    const res = await fetch(`${BASE_URL}/api/observability/overview`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    if (!data.success) throw new Error("Expected success: true");
-  });
-
-  // 3. Logs Pillar
+  // Native telemetry routes require credentials and CF_* secrets. Skip upstream checks when unconfigured.
   await check("Logs Pillar (/api/observability/logs)", async () => {
-    const res = await fetch(`${BASE_URL}/api/observability/logs`);
+    if (!OBSERVABILITY_API_KEY) return;
+    const res = await fetch(`${BASE_URL}/api/observability/logs`, { headers: HEADERS });
+    if (res.status === 503) return;
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    if (!Array.isArray(data.logs)) throw new Error("logs is not an array");
+    if (!data.success || !data.data) throw new Error("Missing Cloudflare telemetry response");
   });
 
   // 4. Metrics Pillar
   await check("Metrics Pillar (/api/observability/metrics)", async () => {
-    const res = await fetch(`${BASE_URL}/api/observability/metrics`);
+    if (!OBSERVABILITY_API_KEY) return;
+    const res = await fetch(`${BASE_URL}/api/observability/metrics`, { headers: HEADERS });
+    if (res.status === 503) return;
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    if (!data.requests || !data.business) throw new Error("Missing requests or business metrics");
+    if (!data.success || !data.data) throw new Error("Missing Cloudflare metrics response");
   });
 
   // 5. Traces Pillar
   await check("Traces Pillar (/api/observability/traces)", async () => {
-    const res = await fetch(`${BASE_URL}/api/observability/traces`);
+    if (!OBSERVABILITY_API_KEY) return;
+    const res = await fetch(`${BASE_URL}/api/observability/traces`, { headers: HEADERS });
+    if (res.status === 503) return;
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    if (!Array.isArray(data.traces)) throw new Error("traces is not an array");
+    if (!data.success || !data.data) throw new Error("Missing Cloudflare traces response");
   });
 
-  // 6. Header propagation
-  await check("Trace Header Propagation (/api/health)", async () => {
+  // Request correlation remains separate from native trace IDs.
+  await check("Request Header Propagation (/api/health)", async () => {
     const res = await fetch(`${BASE_URL}/api/health`);
-    const traceId = res.headers.get("x-trace-id");
     const requestId = res.headers.get("x-request-id");
-    if (!traceId) throw new Error("Missing X-Trace-ID header");
     if (!requestId) throw new Error("Missing X-Request-ID header");
   });
 

@@ -139,8 +139,25 @@ async function ensurePages() {
 function generateWranglerToml({ databaseId, kvId }) {
   return `name = "${RESOURCE_NAMES.worker}"
 main = "worker/index.js"
-compatibility_date = "2024-08-01"
+compatibility_date = "2026-10-18"
 compatibility_flags = ["nodejs_compat"]
+
+[vars]
+CF_ACCOUNT_ID = "${ACCOUNT_ID}"
+CF_WORKER_NAME = "${RESOURCE_NAMES.worker}"
+CF_D1_DATABASE_ID = "${databaseId}"
+
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+head_sampling_rate = 0.2
+
+[observability.traces]
+enabled = true
+head_sampling_rate = 0.1
 
 # Enable Smart Placement to run Worker close to D1 and minimize cross-region query RTT
 [placement]
@@ -199,6 +216,38 @@ function runWrangler(args) {
   });
 }
 
+// Send a secret through Wrangler stdin so its value is never printed in CI logs.
+function putWranglerSecret(name, value) {
+  const wranglerBin = resolve(
+    "node_modules", ".bin",
+    process.platform === "win32" ? "wrangler.cmd" : "wrangler"
+  );
+
+  if (!value) {
+    console.log(`ℹ️ Skipping Worker secret ${name}; its GitHub Actions secret is not configured.`);
+    return Promise.resolve();
+  }
+
+  console.log(`\n▶  wrangler secret put ${name}`);
+  return new Promise((res, rej) => {
+    const child = spawn(wranglerBin, ["secret", "put", name, "--config", resolve("wrangler.toml")], {
+      env: {
+        ...process.env,
+        CLOUDFLARE_ACCOUNT_ID: ACCOUNT_ID,
+        CLOUDFLARE_API_TOKEN: API_TOKEN,
+      },
+      stdio: ["pipe", "inherit", "inherit"],
+    });
+
+    child.on("error", rej);
+    child.on("exit", (code) => {
+      if (code === 0) res();
+      else rej(new Error(`wrangler secret put ${name} exited with code ${code}`));
+    });
+    child.stdin.end(value);
+  });
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 console.log(DRY_RUN
   ? "\n📋 DRY RUN — generating config only, no deployments.\n"
@@ -254,6 +303,10 @@ await runWrangler([
   "deploy",
   "--config", resolve("wrangler.toml"),
 ]);
+
+// Observability uses a restricted read/query token and a separate dashboard key.
+await putWranglerSecret("OBSERVABILITY_API_KEY", process.env.OBSERVABILITY_API_KEY);
+await putWranglerSecret("CF_OBSERVABILITY_API_TOKEN", process.env.CF_OBSERVABILITY_API_TOKEN);
 
 // Step 3: Ensure Cloudflare Pages project with Service Binding
 console.log("\n⚡ Provisioning Cloudflare Pages project with Service Binding...");

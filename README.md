@@ -77,24 +77,27 @@ This repository includes a fully automated provisioning script (`scripts/setup.j
 
 ---
 
-## ⚡ 3. Observability Platform (`/admin/observability/`)
+## ⚡ 3. Cloudflare-Native Observability (`/admin/observability/`)
 
-CloudCart includes a production-grade, Cloudflare-native observability platform built around the three canonical pillars: **Logs**, **Metrics**, and **Traces**, directly accessible from the Admin Portal.
+The observability dashboard queries Cloudflare Workers Observability for recent logs, metrics, and traces. It does not write observability data to D1 or KV. Cloudflare retains logs and traces for a limited period; this project does not keep a separate historical telemetry store.
 
-### 3 Pillars & Architectural Principles
-- **Logs Pillar**: Structured dual-write logging (emitting JSON lines to native `console.*` for Cloudflare Logpush/Tail alongside an in-memory queryable buffer) with automatic PII sanitization.
-- **Metrics Pillar**: Honest, real-time request metrics, latency percentiles (p50/p95/p99), business events (checkouts, inventory updates, feedback), and infrastructure telemetry for D1, KV, and Durable Objects.
-- **Traces Pillar**: Distributed end-to-end tracing with W3C `traceparent` support, span trees for D1 queries, KV caching, and Durable Object coordination, rendered via an interactive span waterfall in the Admin UI.
-- **Zero Synthetic Fallbacks**: All metrics reflect actual runtime execution with no fake numbers or synthetic demo mocks.
-- **Universal Correlation**: `X-Trace-ID` and `X-Request-ID` propagate across client, worker, database, and actor model for 1-click log-to-trace debugging.
+### Configure access
 
-### Automated Testing & Verification
-```bash
-# Run the automated observability verification suite
-npm test
-# or
-node scripts/verify_observability.js
-```
-*Validates observability health probes, logs buffer, request/business metrics, distributed trace recording, and header propagation.*
+The workflow uses these two existing **repository secrets** and installs the observability values into the `cloudcart-worker` Worker after each deploy:
+
+| GitHub secret | Purpose |
+| --- | --- |
+| `CLOUDFLARE_API_TOKEN` | Your existing deploy token, also used to query Cloudflare telemetry. It needs Workers Observability Write and Account Analytics Read permissions in addition to the permissions needed for deployment. |
+| `OBSERVABILITY_API_KEY` | Your existing observability dashboard/API access key. |
+
+The workflow reuses your existing `CLOUDFLARE_ACCOUNT_ID` as a Worker variable and your existing `CLOUDFLARE_API_TOKEN` for both deployment and Cloudflare telemetry queries. The admin page has no password gate. The observability dashboard asks for `OBSERVABILITY_API_KEY` and keeps it in the current browser session. The Cloudflare API token stays in Worker secrets and is never sent to browser code. `scripts/setup.js` fills `CF_WORKER_NAME` and `CF_D1_DATABASE_ID` in Wrangler configuration when it provisions resources; for manual provisioning, set those variables to the deployed Worker name and D1 database UUID.
+
+After deployment, open **Admin** without a password prompt. Open **Observability** and enter the value of `OBSERVABILITY_API_KEY` when prompted. The dashboard auto-refresh is off by default; each view is queried on demand and cached briefly in Worker memory.
+
+### Health and quota behavior
+
+Passive health refreshes do not call D1, KV, or the Durable Object. They show unknown when the dashboard has no fresh evidence. **Run health check** deliberately performs one D1 `SELECT 1`, one KV read, and one InventoryDO request; the result is reused for 30 seconds. Pages availability is not inferred from a backend Worker probe.
+
+Logs and traces are sampled and may not represent every invocation. Current tracing sampling is configured in `wrangler.toml`; review Cloudflare Observability usage and pricing before increasing it. Keep personal/customer data out of log messages and span attributes.
 
 

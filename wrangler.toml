@@ -1,7 +1,24 @@
 name = "cloudcart-worker"
 main = "worker/index.js"
-compatibility_date = "2024-08-01"
+compatibility_date = "2026-10-18"
 compatibility_flags = ["nodejs_compat"]
+
+[vars]
+CF_WORKER_NAME = "cloudcart-worker"
+CF_D1_DATABASE_ID = "00000000-0000-0000-0000-000000000000"
+
+# Cloudflare-native logs and distributed traces. Traces include D1, KV, and DO spans.
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+head_sampling_rate = 0.2
+
+[observability.traces]
+enabled = true
+head_sampling_rate = 0.1
 
 # Enable Smart Placement to run Worker close to D1 and minimize cross-region query RTT
 [placement]

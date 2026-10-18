@@ -1,9 +1,5 @@
 import { InventoryDO, InventorySyncDO } from "./InventoryDO.js";
 import { handleObservabilityRoute } from "./observability/routes.js";
-import { startTrace, addSpan, closeSpan, closeTrace } from "./observability/tracing.js";
-import { recordRequest, recordBusinessEvent } from "./observability/metrics.js";
-import { recordLog, logInfo, logWarn, logError } from "./observability/logManager.js";
-import { recordD1Query, recordKVOperation } from "./observability/infraTelemetry.js";
 
 export { InventoryDO, InventorySyncDO };
 
@@ -25,7 +21,7 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // Route observability API early — before trace instrumentation to avoid self-recording
+    // Observability routes do not probe dependencies unless explicitly requested.
     if (path.startsWith("/api/observability")) {
       const obsResponse = await handleObservabilityRoute(request, env, ctx, path, url);
       if (obsResponse) return obsResponse;
@@ -36,111 +32,8 @@ export default {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
 
-    // ── Start distributed trace ───────────────────────────────────
-    const trace = startTrace(request);
-    const requestId = trace.requestId;
-
-    // ── Wrap DB with span instrumentation ─────────────────────────
-    const wrappedEnv = { ...env };
-
-    if (env.DB) {
-      const origPrepare = env.DB.prepare.bind(env.DB);
-      wrappedEnv.DB = {
-        prepare: (query) => {
-          const stmt = origPrepare(query);
-          const isWrite = /^(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER)/i.test(query.trim());
-
-          const wrapExec = (fn) => async (...args) => {
-            const span = addSpan(trace, {
-              service: "d1",
-              operation: isWrite ? "db.write" : "db.read",
-              attributes: { query: query.substring(0, 150), type: isWrite ? "WRITE" : "READ" }
-            });
-            const t0 = performance.now();
-            try {
-              const res = await fn(...args);
-              const dur = performance.now() - t0;
-              closeSpan(span, { status: "ok" });
-              recordD1Query(query, dur, isWrite);
-              // Emit WARN log for genuinely slow queries (>500ms indicates heavy scans, locks, or congestion)
-              if (dur > 500) {
-                logWarn(`Slow D1 query (${Math.round(dur)}ms): ${query.substring(0, 80)}`, {
-                  service: "d1", endpoint: path, durationMs: Math.round(dur)
-                }, { traceId: trace.traceId, requestId });
-              }
-              return res;
-            } catch (e) {
-              closeSpan(span, { error: e.message });
-              recordD1Query(query, performance.now() - t0, isWrite, e.message);
-              logError(`D1 query failed: ${e.message}`, e, { service: "d1", endpoint: path }, { traceId: trace.traceId, requestId });
-              throw e;
-            }
-          };
-
-          return {
-            bind: (...bArgs) => {
-              const bound = stmt.bind(...bArgs);
-              return {
-                all:   wrapExec(bound.all.bind(bound)),
-                run:   wrapExec(bound.run.bind(bound)),
-                first: wrapExec(bound.first.bind(bound))
-              };
-            },
-            all:   wrapExec(stmt.all.bind(stmt)),
-            run:   wrapExec(stmt.run.bind(stmt)),
-            first: wrapExec(stmt.first.bind(stmt))
-          };
-        }
-      };
-    }
-
-    // ── Wrap KV with span instrumentation ────────────────────────
-    if (env.CLOUDCART_KV) {
-      wrappedEnv.CLOUDCART_KV = {
-        get: async (...args) => {
-          const span = addSpan(trace, { service: "kv", operation: "cache.get", attributes: { key: String(args[0]).substring(0, 80) } });
-          const t0 = performance.now();
-          try {
-            const r = await env.CLOUDCART_KV.get(...args);
-            closeSpan(span, { status: "ok" });
-            recordKVOperation("get", performance.now() - t0);
-            return r;
-          } catch (e) {
-            closeSpan(span, { error: e.message });
-            recordKVOperation("get", performance.now() - t0, e.message);
-            throw e;
-          }
-        },
-        put: async (...args) => {
-          const span = addSpan(trace, { service: "kv", operation: "cache.put", attributes: { key: String(args[0]).substring(0, 80) } });
-          const t0 = performance.now();
-          try {
-            const r = await env.CLOUDCART_KV.put(...args);
-            closeSpan(span, { status: "ok" });
-            recordKVOperation("put", performance.now() - t0);
-            return r;
-          } catch (e) {
-            closeSpan(span, { error: e.message });
-            recordKVOperation("put", performance.now() - t0, e.message);
-            throw e;
-          }
-        },
-        delete: async (...args) => {
-          const span = addSpan(trace, { service: "kv", operation: "cache.delete", attributes: { key: String(args[0]).substring(0, 80) } });
-          const t0 = performance.now();
-          try {
-            const r = await env.CLOUDCART_KV.delete(...args);
-            closeSpan(span, { status: "ok" });
-            recordKVOperation("delete", performance.now() - t0);
-            return r;
-          } catch (e) {
-            closeSpan(span, { error: e.message });
-            recordKVOperation("delete", performance.now() - t0, e.message);
-            throw e;
-          }
-        }
-      };
-    }
+    const requestId = request.headers.get("X-Request-ID") || `req_${crypto.randomUUID()}`;
+    const startedAt = performance.now();
 
     // ── Durable Object stub ───────────────────────────────────────
     const doId = env.INVENTORY_DO.idFromName("cloudcart-inventory-global");
@@ -148,65 +41,29 @@ export default {
 
     let response;
     let errorText = null;
-    let businessEvent = null;
 
     try {
-      response = await handleWorkerRequest(request, wrappedEnv, ctx, url, path, doStub, requestId, trace);
+      response = await handleWorkerRequest(request, env, ctx, url, path, doStub, requestId);
     } catch (err) {
-      console.error("Worker Server Error:", err);
-      errorText = err.message;
-      response = jsonResponse({ success: false, error: err.message }, 500);
+      console.error(JSON.stringify({ level: "ERROR", service: "worker", requestId, message: "Worker request failed", error: String(err?.message || "Unknown error").slice(0, 300) }));
+      errorText = "Internal server error";
+      response = jsonResponse({ success: false, error: errorText }, 500);
     }
 
     const httpStatus = response.status;
-    const durationMs = Math.round(performance.now() - trace.startMs);
+    const durationMs = Math.round(performance.now() - startedAt);
 
-    // ── Determine business event ──────────────────────────────────
-    if (path === "/api/products" && request.method === "POST" && httpStatus === 201)                       businessEvent = "PRODUCT_CREATED";
-    else if (path.startsWith("/api/products/") && request.method === "PUT" && httpStatus === 200)           businessEvent = "PRODUCT_UPDATED";
-    else if (path.startsWith("/api/products/") && request.method === "DELETE" && httpStatus === 200)        businessEvent = "PRODUCT_DELETED";
-    else if (path === "/api/checkout" && request.method === "POST" && httpStatus === 200)                   businessEvent = "CHECKOUT_SUCCEEDED";
-    else if (path === "/api/checkout" && request.method === "POST" && httpStatus !== 200)                   businessEvent = "CHECKOUT_FAILED";
-    else if (path === "/api/feedback" && request.method === "POST" && httpStatus === 201)                   businessEvent = "FEEDBACK_SUBMITTED";
-
-    // ── Emit metrics + log + close trace ─────────────────────────
-    if (path.startsWith("/api") && !path.startsWith("/api/observability")) {
-      const normalizedEndpoint = path.startsWith("/api/products/") ? "/api/products/:id" : path;
-
-      recordRequest({ traceId: trace.traceId, requestId, endpoint: normalizedEndpoint, method: request.method, status: httpStatus, durationMs, businessEvent, error: errorText });
-
-      if (businessEvent) {
-        const rev = (businessEvent === "CHECKOUT_SUCCEEDED" && response._revenue) ? response._revenue : 0;
-        recordBusinessEvent(businessEvent, { amount: rev, traceId: trace.traceId });
-      }
-
-      // Structured log for this request
-      const logLevel = httpStatus >= 500 ? "ERROR" : httpStatus >= 400 ? "WARN" : "INFO";
-      const logMsg = buildLogMessage(request.method, path, httpStatus, durationMs, businessEvent, errorText);
-
-      recordLog({
-        level: logLevel,
-        service: "worker",
-        traceId: trace.traceId,
-        requestId,
-        message: logMsg,
-        context: { endpoint: normalizedEndpoint, method: request.method, httpStatus, durationMs, businessEvent },
-        error: errorText ? { message: errorText } : null
-      });
+    if (path.startsWith("/api") && httpStatus >= 500) {
+      console.error(JSON.stringify({ level: "ERROR", service: "worker", requestId, endpoint: path, method: request.method, status: httpStatus, durationMs, message: errorText || "Server error" }));
     }
-
-    // ── Finalize trace ────────────────────────────────────────────
-    closeTrace(trace, response, { businessEvent });
 
     // ── Propagate traceId in response headers ─────────────────────
     try {
       response.headers.set("X-Request-ID", requestId);
-      response.headers.set("X-Trace-ID", trace.traceId);
     } catch (_) {
       if (response.status !== 101) {
         const newHeaders = new Headers(response.headers);
         newHeaders.set("X-Request-ID", requestId);
-        newHeaders.set("X-Trace-ID", trace.traceId);
         response = new Response(response.body, { status: response.status, statusText: response.statusText, headers: newHeaders });
       }
     }
@@ -215,24 +72,9 @@ export default {
   }
 };
 
-// ─── Business log message builder ────────────────────────────────
-
-function buildLogMessage(method, path, status, durationMs, businessEvent, errorText) {
-  if (businessEvent === "PRODUCT_CREATED")   return "Product created successfully in D1 catalog";
-  if (businessEvent === "PRODUCT_UPDATED")   return "Product updated in D1 and broadcast via InventoryDO";
-  if (businessEvent === "PRODUCT_DELETED")   return "Product soft-deleted from D1 and broadcast via InventoryDO";
-  if (businessEvent === "CHECKOUT_SUCCEEDED") return "Atomic checkout transaction completed — stock deducted, order created";
-  if (businessEvent === "CHECKOUT_FAILED")   return "Checkout rejected — insufficient stock or validation error";
-  if (businessEvent === "FEEDBACK_SUBMITTED") return "Customer feedback stored in D1 and broadcast via InventoryDO";
-  if (status >= 500) return `Server error on ${method} ${path}: ${errorText || "Internal error"}`;
-  if (status === 404) return `Resource not found: ${method} ${path}`;
-  if (status >= 400)  return `Bad request: ${method} ${path}`;
-  return `${method} ${path} → ${status} (${durationMs}ms)`;
-}
-
 // ─── Request Router ───────────────────────────────────────────────
 
-async function handleWorkerRequest(request, env, ctx, url, path, doStub, requestId, trace) {
+async function handleWorkerRequest(request, env, ctx, url, path, doStub, requestId) {
 
   // 1. Real-time WebSocket connection
   if (path === "/api/sync" || request.headers.get("Upgrade") === "websocket") {
@@ -304,15 +146,11 @@ async function handleWorkerRequest(request, env, ctx, url, path, doStub, request
 
     const newProd = { id, name: trimmedName, category: trimmedCat, price: p, stock: s, description, image_url: defaultImg, is_active: 1 };
 
-    const doSpan = addSpan(trace, { service: "inventory_do", operation: "do.broadcast", attributes: { type: "PRODUCT_ADDED" } });
     await doStub.fetch("http://do/sync-broadcast", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Trace-ID": trace.traceId, "X-Span-ID": doSpan.spanId, "X-Request-ID": requestId },
+      headers: { "Content-Type": "application/json", "X-Request-ID": requestId },
       body: JSON.stringify({ type: "PRODUCT_ADDED", product: newProd })
     });
-    closeSpan(doSpan);
-
-    logInfo(`Product created: "${trimmedName}" (${trimmedCat}) @ ₹${p}`, { service: "worker", endpoint: "/api/products", httpStatus: 201, businessEvent: "PRODUCT_CREATED" }, { traceId: trace.traceId, requestId });
 
     return jsonResponse({ success: true, product: newProd }, 201);
   }
@@ -355,13 +193,11 @@ async function handleWorkerRequest(request, env, ctx, url, path, doStub, request
 
     const updatedProd = { id: prodId, name: newName, category: newCat, price: newPrice, stock: newStock, description: newDesc, image_url: newImg };
 
-    const doSpan = addSpan(trace, { service: "inventory_do", operation: "do.broadcast", attributes: { type: "PRODUCT_UPDATED" } });
     await doStub.fetch("http://do/sync-broadcast", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Trace-ID": trace.traceId, "X-Span-ID": doSpan.spanId, "X-Request-ID": requestId },
+      headers: { "Content-Type": "application/json", "X-Request-ID": requestId },
       body: JSON.stringify({ type: "PRODUCT_UPDATED", product: updatedProd, source: "ADMIN" })
     });
-    closeSpan(doSpan);
 
     return jsonResponse({ success: true, product: updatedProd });
   }
@@ -377,43 +213,26 @@ async function handleWorkerRequest(request, env, ctx, url, path, doStub, request
 
     await env.DB.prepare("UPDATE products SET is_active = 0 WHERE id = ?").bind(prodId).run();
 
-    const doSpan = addSpan(trace, { service: "inventory_do", operation: "do.broadcast", attributes: { type: "PRODUCT_DELETED" } });
     await doStub.fetch("http://do/sync-broadcast", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Trace-ID": trace.traceId, "X-Span-ID": doSpan.spanId, "X-Request-ID": requestId },
+      headers: { "Content-Type": "application/json", "X-Request-ID": requestId },
       body: JSON.stringify({ type: "PRODUCT_DELETED", productId: prodId })
     });
-    closeSpan(doSpan);
 
     return jsonResponse({ success: true, message: "Product deleted successfully." });
   }
 
   // 8. Atomic Checkout (Durable Object)
   if (path === "/api/checkout" && request.method === "POST") {
-    const doSpan = addSpan(trace, { service: "inventory_do", operation: "do.atomic_purchase" });
     const checkoutResp = await doStub.fetch("http://do/atomic-purchase", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Trace-ID": trace.traceId,
-        "X-Span-ID": doSpan.spanId,
         "X-Request-ID": requestId
       },
       body: JSON.stringify(await request.json())
     });
-    closeSpan(doSpan, { status: checkoutResp.ok ? "ok" : "error" });
-
-    let revenue = 0;
-    if (checkoutResp.ok) {
-      try {
-        const bodyClone = await checkoutResp.clone().json();
-        if (bodyClone.totalAmount) revenue = Number(bodyClone.totalAmount) || 0;
-      } catch (_) {}
-    }
-
-    const respWithRev = new Response(checkoutResp.body, checkoutResp);
-    respWithRev._revenue = revenue;
-    return respWithRev;
+    return checkoutResp;
   }
 
   // 9. Orders (Admin)
@@ -470,15 +289,11 @@ async function handleWorkerRequest(request, env, ctx, url, path, doStub, request
 
     const feedbackObj = { id, customer_name: trimmedName, email: email || "", rating: r, comments: trimmedComments, created_at: new Date().toISOString() };
 
-    const doSpan = addSpan(trace, { service: "inventory_do", operation: "do.broadcast", attributes: { type: "FEEDBACK_SUBMITTED" } });
     await doStub.fetch("http://do/sync-broadcast", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Trace-ID": trace.traceId, "X-Span-ID": doSpan.spanId, "X-Request-ID": requestId },
+      headers: { "Content-Type": "application/json", "X-Request-ID": requestId },
       body: JSON.stringify({ type: "FEEDBACK_SUBMITTED", feedback: feedbackObj })
     });
-    closeSpan(doSpan);
-
-    logInfo(`Customer feedback submitted: ${rating}★ from ${customer_name}`, { service: "worker", endpoint: "/api/feedback", httpStatus: 201, businessEvent: "FEEDBACK_SUBMITTED" }, { traceId: trace.traceId, requestId });
 
     return jsonResponse({ success: true, feedback: feedbackObj }, 201);
   }

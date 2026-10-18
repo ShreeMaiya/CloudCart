@@ -1,417 +1,205 @@
-// CloudCart Observability — Admin UI Controller
-// Fetches from /api/observability/* and renders Logs, Metrics, Traces, Health tabs.
-
+// Live Cloudflare-native observability dashboard. Telemetry is queried on demand;
+// nothing is written to this project's D1 or KV for observability.
 const API = "/api/observability";
-let autoRefreshTimer = null;
+const KEY_NAME = "cloudcart-observability-key";
 let currentTab = "health";
-
-// ─── Init ─────────────────────────────────────────────────────────
+let refreshTimer = null;
+let promptInProgress = false;
 
 document.addEventListener("DOMContentLoaded", () => {
-  setupTabs();
-  setupControls();
-  refreshAll();
+  document.querySelectorAll(".tab-btn").forEach(button => button.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach(item => item.classList.toggle("active", item === button));
+    document.querySelectorAll(".tab-view").forEach(item => item.classList.toggle("active", item.id === `view-${button.dataset.tab}`));
+    currentTab = button.dataset.tab;
+    loadTab(currentTab);
+  }));
+  document.getElementById("refreshBtn").addEventListener("click", () => loadTab(currentTab));
+  document.getElementById("probeBtn").addEventListener("click", runHealthCheck);
+  document.getElementById("signOutBtn").addEventListener("click", () => {
+    sessionStorage.removeItem(KEY_NAME);
+    location.reload();
+  });
+  document.getElementById("rangeSelect").addEventListener("change", () => loadTab(currentTab));
+  document.getElementById("autoRefreshSelect").addEventListener("change", event => {
+    clearInterval(refreshTimer);
+    const interval = Number(event.target.value);
+    if (interval > 0) refreshTimer = setInterval(() => loadTab(currentTab), interval);
+  });
+  document.getElementById("logSearch").addEventListener("keydown", event => {
+    if (event.key === "Enter") loadLogs();
+  });
+  loadTab(currentTab);
 });
 
-function setupTabs() {
-  document.querySelectorAll(".tab-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const tab = btn.dataset.tab;
-      document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
-      document.querySelectorAll(".tab-view").forEach(v => v.classList.remove("active"));
-      btn.classList.add("active");
-      document.getElementById(`view-${tab}`).classList.add("active");
-      currentTab = tab;
-      loadTab(tab);
-    });
-  });
-}
-
-function setupControls() {
-  document.getElementById("refreshBtn").addEventListener("click", () => refreshAll());
-
-  document.getElementById("rangeSelect").addEventListener("change", () => refreshAll());
-
-  document.getElementById("autoRefreshSelect").addEventListener("change", e => {
-    clearInterval(autoRefreshTimer);
-    autoRefreshTimer = null;
-    const ms = parseInt(e.target.value, 10);
-    if (ms > 0) autoRefreshTimer = setInterval(() => refreshAll(), ms);
-  });
-  // Auto-refresh defaults to Off to preserve free-tier KV & D1 quotas
-
-  document.getElementById("logSearch").addEventListener("keydown", e => {
-    if (e.key === "Enter") loadLogs();
-  });
-}
-
-function getRange() {
-  return document.getElementById("rangeSelect").value;
-}
-
-function refreshAll() {
-  loadTab(currentTab);
-  if (currentTab !== "health") loadHeaderHealth();
-  document.getElementById("lastUpdated").textContent = "Updated " + new Date().toLocaleTimeString();
-}
-
 function loadTab(tab) {
-  switch (tab) {
-    case "health":   loadHealth();  break;
-    case "logs":     loadLogs();    break;
-    case "metrics":  loadMetrics(); break;
-    case "traces":   loadTraces();  break;
+  if (tab === "health") return loadHealth(false);
+  if (tab === "logs") return loadLogs();
+  if (tab === "metrics") return loadMetrics();
+  if (tab === "traces") return loadTraces();
+}
+
+function range() { return document.getElementById("rangeSelect").value; }
+
+async function fetchApi(path, options = {}, retryAuth = true) {
+  const headers = new Headers(options.headers || {});
+  let key = sessionStorage.getItem(KEY_NAME);
+  if (!key && retryAuth && !promptInProgress) {
+    promptInProgress = true;
+    key = window.prompt("Enter the observability dashboard key configured as OBSERVABILITY_API_KEY:") || "";
+    promptInProgress = false;
+    if (key) sessionStorage.setItem(KEY_NAME, key);
+  }
+  if (key) headers.set("X-Admin-Key", key);
+  try {
+    const res = await fetch(path, { ...options, headers, cache: "no-store" });
+    const body = await res.json().catch(() => ({}));
+    if (res.status === 401 && retryAuth) {
+      sessionStorage.removeItem(KEY_NAME);
+      return fetchApi(path, options, false);
+    }
+    if (!res.ok || body.success === false) throw new Error(body.error || `Request failed (${res.status})`);
+    return body.data;
+  } catch (error) {
+    return { error: error.message || "Request failed" };
   }
 }
 
-async function loadHeaderHealth() {
-  const data = await apiFetch(`${API}/health`);
-  if (!data) return;
-  updateHeaderDot(data.data.overallStatus);
-  const statusText = document.getElementById("overallStatusText");
-  if (statusText) statusText.textContent = `All services: ${data.data.overallStatus}`;
+async function loadHealth(probe) {
+  const data = await fetchApi(`${API}/health${probe ? "?probe=1" : ""}`);
+  if (data?.error) return showError("serviceCards", data.error);
+  renderHealth(data);
 }
 
-function updateHeaderDot(status) {
+async function runHealthCheck() {
+  const button = document.getElementById("probeBtn");
+  button.disabled = true;
+  button.textContent = "Checking…";
+  const data = await fetchApi(`${API}/probe`, { method: "POST" });
+  button.disabled = false;
+  button.textContent = "Run health check";
+  if (data?.error) return showError("serviceCards", data.error);
+  renderHealth({ overallStatus: "UNKNOWN", timestamp: new Date().toISOString(), probe: true, services: data?.services || [] });
+}
+
+function renderHealth(data) {
+  const services = data?.services || [];
+  const known = services.filter(item => ["HEALTHY", "DEGRADED", "DOWN"].includes(item.status));
+  const healthy = known.filter(item => item.status === "HEALTHY").length;
+  const degraded = known.filter(item => item.status === "DEGRADED").length;
+  const down = known.filter(item => item.status === "DOWN").length;
+  let status = down ? "DOWN" : degraded ? "DEGRADED" : known.length === services.length && services.length ? "HEALTHY" : "UNKNOWN";
+  if (data?.overallStatus === "UNKNOWN" && !data.probe) status = "UNKNOWN";
+  updateStatus(status);
+  document.getElementById("healthSub").textContent = `${data?.probe ? "Active probe results" : "Passive status; no dependency calls"} · ${formatTime(data?.timestamp)}`;
+  document.getElementById("hHealthy").textContent = healthy;
+  document.getElementById("hDegraded").textContent = degraded;
+  document.getElementById("hFailed").textContent = down;
+  document.getElementById("hTotal").textContent = services.length;
+  document.getElementById("serviceCards").innerHTML = services.map(service => {
+    const cssStatus = service.status === "NOT_CONFIGURED" ? "unknown" : service.status.toLowerCase();
+    return `<article class="service-card ${cssStatus}">
+      <div class="svc-header"><div><div class="svc-name">${escapeHtml(service.name)}</div><div class="svc-tier">${escapeHtml(service.tier)}</div></div><span class="badge badge-${badgeClass(service.status)}">${escapeHtml(service.status)}</span></div>
+      <div class="svc-description">${escapeHtml(service.detail || "")}</div>
+      <div class="svc-meta"><span>${escapeHtml(service.signal || (service.checkedAt ? "Active probe" : ""))}</span>${service.latencyMs != null ? `<span>${service.latencyMs} ms</span>` : ""}<span>${formatTime(service.checkedAt)}</span>${service.cached ? "<span>cached probe</span>" : ""}</div>
+    </article>`;
+  }).join("") || '<div class="empty-state">No service state is available.</div>';
+  document.getElementById("lastUpdated").textContent = `Updated ${new Date().toLocaleTimeString()}`;
+}
+
+function updateStatus(status) {
   const dot = document.getElementById("healthDot");
-  if (!dot) return;
-  dot.style.background = status === "HEALTHY" ? "var(--success)" : status === "DEGRADED" ? "var(--warn)" : "var(--error)";
-  dot.style.boxShadow = status === "HEALTHY" ? "0 0 8px var(--success)" : status === "DEGRADED" ? "0 0 8px var(--warn)" : "0 0 8px var(--error)";
+  dot.className = `dot ${status.toLowerCase()}`;
+  document.getElementById("overallStatusText").textContent = `System ${status.toLowerCase()}`;
+  document.getElementById("healthOrb").className = `health-orb ${status.toLowerCase()}`;
+  document.getElementById("healthOrb").textContent = status === "HEALTHY" ? "✓" : status === "DEGRADED" ? "!" : status === "DOWN" ? "×" : "?";
+  document.getElementById("healthTitle").textContent = `System ${status.toLowerCase()}`;
 }
 
-// ─── Logs ─────────────────────────────────────────────────────────
-
-window.loadLogs = async function() {
-  const range   = getRange();
-  const level   = document.getElementById("logLevel").value;
+async function loadLogs() {
+  const query = new URLSearchParams({ range: range(), limit: "100" });
+  const data = await fetchApi(`${API}/logs?${query}`);
+  if (data?.error) return showError("logsContainer", data.error);
+  const result = data?.data || {};
+  const events = result?.events?.events || [];
+  const level = document.getElementById("logLevel").value;
   const service = document.getElementById("logService").value;
-  const search  = document.getElementById("logSearch").value;
-  const url     = `${API}/logs?range=${range}&level=${level}&service=${service}&search=${encodeURIComponent(search)}&limit=100`;
-
-  const data = await apiFetch(url);
-  const container = document.getElementById("logsContainer");
-  const pillsEl = document.getElementById("logCountPills");
-
-  if (!data) { container.innerHTML = `<div class="empty-state">Failed to load logs.</div>`; return; }
-
-  const { logs, total, levelCounts } = data.data;
-
-  // Level count pills
-  pillsEl.innerHTML = [
-    pill(`${total} total`, "var(--text-muted)", "rgba(100,116,139,0.15)"),
-    pill(`${levelCounts.INFO || 0} INFO`, "var(--info)", "var(--info-bg)"),
-    pill(`${levelCounts.WARN || 0} WARN`, "var(--warn)", "var(--warn-bg)"),
-    pill(`${levelCounts.ERROR || 0} ERROR`, "var(--error)", "var(--error-bg)"),
-    pill(`${levelCounts.DEBUG || 0} DEBUG`, "var(--debug)", "rgba(139,92,246,0.12)")
-  ].join("");
-
-  if (!logs || logs.length === 0) {
-    container.innerHTML = `<div class="empty-state">🔍 No logs in selected range<p>Try a wider time range or send some requests first.</p></div>`;
-    return;
-  }
-
-  container.innerHTML = logs.map((l, i) => `
-    <div class="log-row" onclick="toggleLog(${i})" id="logrow-${i}">
-      <span class="log-time">${fmtTime(l.timestamp)}</span>
-      <span class="log-level-badge"><span class="badge badge-${l.level.toLowerCase()}">${l.level}</span></span>
-      <span class="log-service">${l.service}</span>
-      <span class="log-msg">${escHtml(l.message)}</span>
-      ${l.traceId ? `<a class="log-trace-link" href="#" onclick="jumpToTrace('${l.traceId}');return false;" title="View trace">[trace]</a>` : ""}
-    </div>
-    <div class="log-detail" id="logdetail-${i}">${JSON.stringify({ traceId: l.traceId, requestId: l.requestId, context: l.context, error: l.error }, null, 2)}</div>
-  `).join("");
-};
-
-window.toggleLog = function(i) {
-  const row = document.getElementById(`logrow-${i}`);
-  row.classList.toggle("expanded");
-};
-
-function pill(text, color, bg) {
-  return `<span class="log-count-pill" style="color:${color};background:${bg}">${text}</span>`;
+  const search = document.getElementById("logSearch").value.trim().toLowerCase();
+  const filtered = events.filter(event => {
+    const source = parseSource(event.source);
+    const eventLevel = String(source.level || source.severity || event?.$metadata?.level || "INFO").toUpperCase();
+    const eventService = source.service || event?.$workers?.entrypoint || event?.$metadata?.service || event?.$workers?.scriptName || "worker";
+    const haystack = JSON.stringify(event).toLowerCase();
+    const normalizedService = String(eventService).toLowerCase().replace(/[^a-z0-9]/g, "");
+    return (level === "all" || eventLevel === level) && (service === "all" || normalizedService.includes(service.replace(/[^a-z0-9]/g, ""))) && (!search || haystack.includes(search));
+  });
+  document.getElementById("logCountPills").innerHTML = `<span class="log-count-pill">${filtered.length} returned events · Cloudflare sampling may apply</span>`;
+  if (!filtered.length) return setEmpty("logsContainer", result.error || "No recent log events returned. Check Workers Logs configuration, range, and sampling.");
+  document.getElementById("logsContainer").innerHTML = filtered.map((event, index) => {
+    const source = parseSource(event.source);
+    const eventLevel = String(source.level || source.severity || event?.$metadata?.level || "INFO").toUpperCase();
+    const eventService = source.service || event?.$workers?.entrypoint || event?.$metadata?.service || event?.$workers?.scriptName || "worker";
+    const message = source.message || source.msg || event?.$metadata?.message || JSON.stringify(source);
+    return `<div class="log-entry"><div class="log-row"><span class="log-time">${formatTime(event.timestamp || event?.$metadata?.timestamp)}</span><span class="badge badge-${badgeClass(eventLevel)}">${escapeHtml(eventLevel)}</span><span class="log-service">${escapeHtml(eventService)}</span><span class="log-msg">${escapeHtml(message)}</span><button class="btn btn-ghost" onclick="toggleDetail('log-${index}')">Details</button></div><pre id="log-${index}" class="log-detail">${escapeHtml(JSON.stringify(event, null, 2))}</pre></div>`;
+  }).join("");
 }
-
-// ─── Metrics ──────────────────────────────────────────────────────
 
 async function loadMetrics() {
-  const range = getRange();
-  const [metricsData, infraData] = await Promise.all([
-    apiFetch(`${API}/metrics?range=${range}`),
-    apiFetch(`${API}/metrics/infra`)
-  ]);
-
-  if (metricsData) {
-    const { requests, business } = metricsData.data;
-
-    // Request table
-    const reqTable = document.getElementById("metricsRequestTable");
-    if (!requests.endpoints || requests.endpoints.length === 0) {
-      reqTable.innerHTML = `<div class="empty-state">No request data yet — make some API calls first.</div>`;
-    } else {
-      const maxP95 = Math.max(...requests.endpoints.map(e => e.latency.p95 || 0), 1);
-      reqTable.innerHTML = `<table class="obs-table">
-        <thead><tr>
-          <th>Endpoint</th><th>Requests</th><th>Errors</th><th>Error Rate</th>
-          <th>Avg</th><th>P50</th><th>P95</th><th>P99</th>
-        </tr></thead>
-        <tbody>${requests.endpoints.map(e => `<tr>
-          <td class="mono" style="color:var(--text-dim)">${e.endpoint}</td>
-          <td>${e.requests}</td>
-          <td style="color:${e.errors > 0 ? 'var(--error)' : 'var(--text-muted)'}">${e.errors}</td>
-          <td><span class="badge badge-${e.errorRate > 5 ? 'error' : e.errorRate > 0 ? 'warn' : 'healthy'}">${e.errorRate}%</span></td>
-          <td class="mono">${fmtMs(e.latency.avg)}</td>
-          <td class="mono">${fmtMs(e.latency.p50)}</td>
-          <td class="mono">${renderLatencyBar(e.latency.p95, maxP95)}</td>
-          <td class="mono">${fmtMs(e.latency.p99)}</td>
-        </tr>`).join("")}</tbody>
-      </table>`;
-    }
-
-    // Business counters
-    const c = business.counters;
-    document.getElementById("mProdCreated").textContent = c.products_created;
-    document.getElementById("mProdUpdated").textContent = c.products_updated;
-    document.getElementById("mChkOk").textContent       = c.checkouts_succeeded;
-    document.getElementById("mChkFail").textContent     = c.checkouts_failed;
-  }
-
-  if (infraData) {
-    const { d1, kv, do: doM } = infraData.data;
-    document.getElementById("mD1R").textContent    = d1.reads;
-    document.getElementById("mD1W").textContent    = d1.writes;
-    document.getElementById("mD1Slow").textContent = d1.slowQueriesCount;
-    document.getElementById("mD1Err").textContent  = d1.errors;
-    document.getElementById("mKVGet").textContent  = kv.gets;
-    document.getElementById("mKVPut").textContent  = kv.puts;
-    document.getElementById("mKVErr").textContent  = kv.errors;
-    document.getElementById("mDOConn").textContent  = doM.activeConnections ?? "—";
-    document.getElementById("mDOPurch").textContent = doM.totalPurchases ?? "—";
-    document.getElementById("mDOErr").textContent   = doM.purchaseErrors ?? "—";
-
-    // D1 table rows
-    const d1Table = document.getElementById("d1TablesTable");
-    if (d1.tables && d1.tables.length > 0) {
-      d1Table.innerHTML = `<table class="obs-table">
-        <thead><tr><th>Table</th><th>Rows</th><th>Status</th></tr></thead>
-        <tbody>${d1.tables.map(t => `<tr>
-          <td class="mono">${t.table}</td>
-          <td>${t.rows ?? "—"}</td>
-          <td><span class="badge badge-healthy">accessible</span></td>
-        </tr>`).join("")}</tbody>
-      </table>`;
-    }
-  }
+  const data = await fetchApi(`${API}/metrics?range=${encodeURIComponent(range())}`);
+  if (data?.error) return showError("metricsData", data.error);
+  const result = data?.data || {};
+  const account = result.accountMetrics || {};
+  const groups = account.data || {};
+  const workerRows = groups.workersInvocationsAdaptive || [];
+  const d1Rows = groups.d1AnalyticsAdaptiveGroups || [];
+  const doRows = groups.durableObjectsInvocationsAdaptiveGroups || [];
+  const total = (rows, field) => rows.reduce((sum, row) => sum + (Number(row?.sum?.[field]) || 0), 0);
+  const worker = {
+    requests: total(workerRows, "requests"), errors: total(workerRows, "errors"), subrequests: total(workerRows, "subrequests"),
+    cpuP50Ms: workerRows.find(row => row?.quantiles?.cpuTimeP50 != null)?.quantiles?.cpuTimeP50 ?? null,
+    cpuP99Ms: workerRows.find(row => row?.quantiles?.cpuTimeP99 != null)?.quantiles?.cpuTimeP99 ?? null
+  };
+  const d1 = { readQueries: total(d1Rows, "readQueries"), writeQueries: total(d1Rows, "writeQueries"), rowsRead: total(d1Rows, "rowsRead"), rowsWritten: total(d1Rows, "rowsWritten") };
+  const durableObjects = { requests: total(doRows, "requests") };
+  document.getElementById("metricsRequestTable").innerHTML = `<div class="grid-3">
+    ${metricCard("Worker requests", worker.requests, `${worker.errors} errors · ${worker.subrequests} subrequests`)}
+    ${metricCard("Worker CPU", worker.cpuP50Ms == null ? "—" : `${worker.cpuP50Ms} ms`, `P99 ${worker.cpuP99Ms == null ? "—" : `${worker.cpuP99Ms} ms`}`)}
+    ${metricCard("Durable Object requests", durableObjects.requests, "Cloudflare account analytics")}
+    ${metricCard("D1 queries", d1.readQueries + d1.writeQueries, `${d1.readQueries} reads · ${d1.writeQueries} writes`)}
+    ${metricCard("D1 rows read", d1.rowsRead, `${d1.rowsWritten} rows written`)}
+  </div><div class="card-sub metrics-note">Cloudflare account analytics. D1 and Durable Object totals are grouped by UTC date, so a sub-day range can include a full UTC day. Worker request totals include requests made by this observability dashboard. Sampled telemetry counts may be estimates. This panel makes no D1 or KV calls.</div>`;
+  const native = result.nativeBindingActivity?.data;
+  const diagnostic = {
+    nativeBindingActivity: native || result.nativeBindingActivity?.error || "Unavailable",
+    accountAnalytics: groups,
+    accountAnalyticsError: account.error || null,
+    dateCoverage: account.dateCoverage || null,
+    refreshedAt: data.fetchedAt || account.fetchedAt || null
+  };
+  document.getElementById("metricsData").innerHTML = `<pre class="telemetry-json">${escapeHtml(JSON.stringify(diagnostic, null, 2))}</pre>`;
 }
 
-function renderLatencyBar(val, max) {
-  if (val == null) return `<span style="color:var(--text-muted)">—</span>`;
-  const pct = Math.min(100, Math.round((val / max) * 100));
-  const color = val > 200 ? "var(--error)" : val > 100 ? "var(--warn)" : "var(--accent)";
-  return `<div style="display:flex;align-items:center;gap:0.4rem">
-    <div style="width:60px;background:var(--bg);border-radius:3px;height:6px;overflow:hidden">
-      <div style="width:${pct}%;background:${color};height:100%;border-radius:3px"></div>
-    </div>
-    <span>${val}ms</span>
-  </div>`;
+function metricCard(label, value, detail) {
+  return `<div class="card"><div class="card-label">${escapeHtml(label)}</div><div class="card-value">${escapeHtml(value)}</div><div class="card-sub">${escapeHtml(detail)}</div></div>`;
 }
 
-// ─── Traces ───────────────────────────────────────────────────────
-
-window.loadTraces = async function() {
-  const range  = getRange();
-  const status = document.getElementById("traceStatus").value;
-  const event  = document.getElementById("traceEvent").value;
-  const url    = `${API}/traces?range=${range}&status=${status}&businessEvent=${event}&limit=80`;
-
-  const data = await apiFetch(url);
-  const container = document.getElementById("tracesContainer");
-  if (!data) { container.innerHTML = `<div class="empty-state">Failed to load traces.</div>`; return; }
-
-  const { traces, total } = data.data;
-  if (!traces || traces.length === 0) {
-    container.innerHTML = `<div class="empty-state">🔍 No traces yet<p>Traces are collected as requests hit /api/* endpoints.</p></div>`;
-    return;
-  }
-
-  container.innerHTML = `
-    <table class="obs-table trace-row">
-      <thead><tr>
-        <th>Trace ID</th><th>Endpoint</th><th>Method</th><th>Status</th>
-        <th>Duration</th><th>Spans</th><th>Business Event</th><th>Time</th><th>Action</th>
-      </tr></thead>
-      <tbody>${traces.map(t => `<tr onclick="openWaterfall('${t.traceId}')" title="Click to view waterfall">
-        <td class="mono" style="color:var(--accent);font-size:0.7rem">${t.traceId.substring(0, 12)}…</td>
-        <td class="mono truncate">${t.endpoint}</td>
-        <td>${t.method}</td>
-        <td><span class="badge badge-${statusClass(t.httpStatus)}">${t.httpStatus}</span></td>
-        <td class="mono">${t.durationMs}ms</td>
-        <td style="color:var(--text-muted)">${t.spanCount}</td>
-        <td>${t.businessEvent ? `<span class="badge badge-info" style="font-size:0.68rem">${t.businessEvent}</span>` : ""}</td>
-        <td style="color:var(--text-muted)">${fmtTime(t.timestamp)}</td>
-        <td><button class="btn btn-ghost" style="padding:0.2rem 0.5rem;font-size:0.7rem;" onclick="event.stopPropagation();openWaterfall('${t.traceId}')">Waterfall</button></td>
-      </tr>`).join("")}</tbody>
-    </table>`;
-};
-
-window.openWaterfall = async function(traceId) {
-  const data = await apiFetch(`${API}/traces/${traceId}`);
-  if (!data) return;
-
-  const trace = data.data;
-  const panel = document.getElementById("waterfallPanel");
-  const content = document.getElementById("waterfallContent");
-  const title = document.getElementById("waterfallTitle");
-
-  title.innerHTML = `<span style="color:var(--accent);font-family:var(--mono)">${trace.traceId.substring(0, 16)}…</span> — ${trace.method} ${trace.endpoint} <span class="badge badge-${statusClass(trace.httpStatus)}">${trace.httpStatus}</span> <span style="color:var(--text-muted);font-size:0.8rem">${trace.durationMs}ms · ${trace.spanCount} spans</span>`;
-
-  const totalDuration = trace.durationMs || 1;
-  const spans = trace.spans || [];
-
-  content.innerHTML = spans.map(s => {
-    const left = ((s.startOffsetMs / totalDuration) * 100).toFixed(1);
-    const width = Math.max(0.5, ((s.durationMs || 1) / totalDuration) * 100).toFixed(1);
-    const indent = s.parentSpanId ? "  " : "";
-    const isError = s.status === "error";
-    return `<div class="span-row">
-      <span class="span-indent">${indent ? "└─" : "├─"}</span>
-      <span class="span-name"><span class="service">${s.service}</span>.${s.operation}</span>
-      <div class="span-track">
-        <div class="span-bar ${isError ? "error" : s.service}" style="left:${left}%;width:${width}%" title="${s.durationMs}ms"></div>
-      </div>
-      <span class="span-dur">${s.durationMs != null ? s.durationMs + "ms" : "—"}</span>
-    </div>`;
-  }).join("");
-
-  panel.style.display = "block";
-  panel.scrollIntoView({ behavior: "smooth", block: "start" });
-};
-
-window.closeWaterfall = function() {
-  document.getElementById("waterfallPanel").style.display = "none";
-};
-
-window.jumpToTrace = function(traceId) {
-  document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
-  document.querySelectorAll(".tab-view").forEach(v => v.classList.remove("active"));
-  document.querySelector('[data-tab="traces"]').classList.add("active");
-  document.getElementById("view-traces").classList.add("active");
-  currentTab = "traces";
-  loadTraces().then(() => openWaterfall(traceId));
-};
-
-// ─── Health ───────────────────────────────────────────────────────
-
-async function loadHealth() {
-  const [healthData, infraData] = await Promise.all([
-    apiFetch(`${API}/health`),
-    apiFetch(`${API}/metrics/infra`)
-  ]);
-
-  if (healthData) {
-    const d = healthData.data;
-    const st = d.overallStatus;
-
-    // Header dot
-    updateHeaderDot(st);
-    const statusText = document.getElementById("overallStatusText");
-    if (statusText) statusText.textContent = `All services: ${st}`;
-
-    // Health banner
-    const orb = document.getElementById("healthOrb");
-    if (orb) {
-      orb.className = "health-orb " + st.toLowerCase();
-      orb.textContent = st === "HEALTHY" ? "✓" : st === "DEGRADED" ? "!" : "✕";
-    }
-    const titleEl = document.getElementById("healthTitle");
-    if (titleEl) titleEl.textContent = `System ${capitalize(st.toLowerCase())}`;
-    const subEl = document.getElementById("healthSub");
-    if (subEl) subEl.textContent = `Last health check: ${fmtTime(d.timestamp)}`;
-
-    const hHealthy = document.getElementById("hHealthy");
-    if (hHealthy) hHealthy.textContent = d.healthyCount ?? 0;
-    const hDegraded = document.getElementById("hDegraded");
-    if (hDegraded) hDegraded.textContent = d.degradedCount ?? 0;
-    const hFailed = document.getElementById("hFailed");
-    if (hFailed) hFailed.textContent = d.failedCount ?? 0;
-    const hTotal = document.getElementById("hTotal");
-    if (hTotal) hTotal.textContent = d.totalServices ?? (d.services ? d.services.length : 0);
-
-    const services = d.services || [];
-    document.getElementById("serviceCards").innerHTML = services.map(s => `
-      <div class="service-card ${s.status.toLowerCase()}">
-        <div class="svc-header">
-          <div>
-            <div class="svc-name">${s.name}</div>
-            <div class="svc-tier">${s.tier}</div>
-          </div>
-          <span class="badge badge-${s.status.toLowerCase()}">${s.status}</span>
-        </div>
-        <div style="font-size:0.78rem;color:var(--text-muted);margin-top:0.25rem">${s.description}</div>
-        <div class="svc-meta">
-          ${s.responseTimeMs != null ? `<span>⏱ ${s.responseTimeMs < 1 ? '&lt;1ms' : `${s.responseTimeMs}ms`}</span>` : ""}
-          <span>🕐 ${fmtTime(s.lastChecked)}</span>
-          ${s.details?.activeConnections != null ? `<span>🔗 ${s.details.activeConnections} WS</span>` : ""}
-        </div>
-        ${s.error ? `<div class="svc-error">Error: ${escHtml(s.error)}</div>` : ""}
-      </div>
-    `).join("");
-  }
-
-  // D1 recent queries
-  if (infraData) {
-    const queries = infraData.data.d1.recentQueries || [];
-    const el = document.getElementById("d1RecentQueries");
-    if (queries.length === 0) {
-      el.innerHTML = `<div class="empty-state">No D1 queries recorded yet.</div>`;
-    } else {
-      el.innerHTML = `<table class="obs-table">
-        <thead><tr><th>Type</th><th>Query</th><th>Duration</th><th>Slow</th><th>Time</th></tr></thead>
-        <tbody>${queries.map(q => `<tr>
-          <td><span class="badge badge-${q.type === "WRITE" ? "warn" : "info"}">${q.type}</span></td>
-          <td class="mono truncate" title="${escHtml(q.query)}">${escHtml(q.query.substring(0, 80))}</td>
-          <td class="mono">${q.durationMs}ms</td>
-          <td>${q.isSlow ? '<span class="badge badge-warn">SLOW</span>' : ""}</td>
-          <td style="color:var(--text-muted)">${fmtTime(q.timestamp)}</td>
-        </tr>`).join("")}</tbody>
-      </table>`;
-    }
-  }
+async function loadTraces() {
+  const data = await fetchApi(`${API}/traces?range=${encodeURIComponent(range())}&limit=80`);
+  if (data?.error) return showError("tracesContainer", data.error);
+  const traces = data?.data?.traces || [];
+  if (!traces.length) return setEmpty("tracesContainer", "No recent traces were returned. Confirm tracing is enabled and check the sampling rate.");
+  document.getElementById("tracesContainer").innerHTML = `<table class="obs-table trace-row"><thead><tr><th>Trace ID</th><th>Transaction</th><th>Services</th><th>Duration</th><th>Spans</th><th>Started</th><th></th></tr></thead><tbody>${traces.map((trace, index) => `<tr><td class="mono">${escapeHtml(trace.traceId || "—")}</td><td>${escapeHtml(trace.rootTransactionName || trace.rootSpanName || "—")}</td><td>${escapeHtml((trace.service || []).join(", "))}</td><td>${trace.traceDurationMs == null ? "—" : `${Number(trace.traceDurationMs).toFixed(1)} ms`}</td><td>${trace.spans ?? "—"}</td><td>${formatTime(trace.traceStartMs)}</td><td><button class="btn btn-ghost" onclick="toggleDetail('trace-${index}')">Spans</button></td></tr><tr><td colspan="7"><pre class="log-detail" id="trace-${index}">${escapeHtml(JSON.stringify(trace, null, 2))}</pre></td></tr>`).join("")}</tbody></table>`;
 }
 
-// ─── Shared utilities ─────────────────────────────────────────────
-
-async function apiFetch(url) {
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    return await res.json();
-  } catch (e) {
-    console.warn("apiFetch failed:", url, e.message);
-    return null;
-  }
+function parseSource(source) {
+  if (source && typeof source === "object") return source;
+  if (typeof source === "string") { try { return JSON.parse(source); } catch { return { message: source }; } }
+  return {};
 }
-
-function fmtTime(iso) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return d.toLocaleTimeString("en-IN", { hour12: false });
-}
-
-function fmtMs(val) {
-  return val != null ? `${val}ms` : "—";
-}
-
-function statusClass(code) {
-  if (code >= 500) return "5xx";
-  if (code >= 400) return "4xx";
-  return "2xx";
-}
-
-function capitalize(str) {
-  return str.charAt(0).toUpperCase() + str.slice(1);
-}
-
-function escHtml(str) {
-  if (!str) return "";
-  return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
-}
+function formatTime(value) { if (!value) return "—"; const date = typeof value === "number" ? new Date(value) : new Date(value); return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString("en-IN", { hour12: false }); }
+function badgeClass(value) { const v = String(value).toLowerCase(); if (["healthy", "info", "debug", "2xx"].includes(v)) return "healthy"; if (["degraded", "warn", "warning", "4xx"].includes(v)) return "warn"; if (["down", "error", "5xx"].includes(v)) return "error"; return "unknown"; }
+function escapeHtml(value) { return String(value ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]); }
+function setEmpty(id, message) { document.getElementById(id).innerHTML = `<div class="empty-state">${escapeHtml(message)}</div>`; }
+function showError(id, message) { setEmpty(id, message); }
+window.toggleDetail = id => { const element = document.getElementById(id); if (element) element.classList.toggle("visible"); };
+window.loadLogs = loadLogs;
+window.loadTraces = loadTraces;

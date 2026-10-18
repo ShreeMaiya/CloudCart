@@ -44,6 +44,9 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 }
 .header-brand { display: flex; align-items: center; gap: 0.75rem; }
 .header-brand .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); box-shadow: 0 0 8px var(--success); animation: pulse 2s infinite; }
+.header-brand .dot.unknown, .header-brand .dot.not_configured { background: var(--text-muted); box-shadow: none; animation: none; }
+.header-brand .dot.degraded { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+.header-brand .dot.down { background: var(--error); box-shadow: 0 0 8px var(--error); }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
 .header-brand h1 { font-size: 1rem; font-weight: 700; color: var(--text); letter-spacing: -0.02em; }
 .header-brand span { font-size: 0.75rem; color: var(--text-muted); }
@@ -139,12 +142,15 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 .service-card.healthy::before { background: var(--success); }
 .service-card.degraded::before { background: var(--warn); }
 .service-card.down::before { background: var(--error); }
+.service-card.unknown::before, .service-card.not_configured::before { background: var(--text-muted); }
 .svc-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.6rem; }
 .svc-name { font-weight: 600; font-size: 0.9rem; }
 .svc-tier { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.15rem; }
 .svc-meta { font-size: 0.78rem; color: var(--text-muted); margin-top: 0.5rem; display: flex; gap: 1rem; flex-wrap: wrap; }
 .svc-meta span { display: flex; align-items: center; gap: 0.3rem; }
 .svc-error { font-size: 0.75rem; color: var(--error); margin-top: 0.4rem; font-family: var(--mono); }
+.svc-description { color: var(--text-dim); font-size: 0.78rem; }
+.badge-unknown { background: rgba(100,116,139,0.15); color: var(--text-dim); }
 
 /* ── Table ── */
 .obs-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
@@ -164,7 +170,8 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 .log-service { color: var(--text-muted); font-size: 0.72rem; white-space: nowrap; flex-shrink: 0; }
 .log-msg { flex: 1; min-width: 0; }
 .log-detail { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem 1rem; margin: 0.5rem 0.75rem 0.75rem; font-family: var(--mono); font-size: 0.75rem; color: var(--text-dim); white-space: pre-wrap; word-break: break-all; display: none; }
-.log-row.expanded + .log-detail { display: block; }
+.log-row.expanded + .log-detail, .log-detail.visible { display: block; }
+.telemetry-json { padding: 1rem; color: var(--text-dim); font-family: var(--mono); font-size: 0.75rem; white-space: pre-wrap; overflow-wrap: anywhere; }
 .log-trace-link { font-size: 0.72rem; color: var(--accent); text-decoration: none; }
 .log-trace-link:hover { text-decoration: underline; }
 .log-count-pills { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; flex-wrap: wrap; }

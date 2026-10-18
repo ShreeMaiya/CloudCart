@@ -1,209 +1,251 @@
-// CloudCart Observability — REST API Route Handler
-// All routes served under /api/observability/
-// Three pillars: Logs (/logs), Metrics (/metrics/*), Traces (/traces)
+// Admin API for Cloudflare-native, short-retention observability data.
+// No logs, traces, or metrics are written to D1/KV by this module.
 
-import { checkSubsystems } from "./health.js";
-import { getRequestMetrics, getBusinessMetrics } from "./metrics.js";
-import { getInfraMetrics } from "./infraTelemetry.js";
-import { getLogs, getLogById } from "./logManager.js";
-import { getTraces, getTraceById } from "./tracing.js";
+const QUERY_CACHE_MS = 15_000;
+const QUERY_TIMEOUT_MS = 8_000;
+const queryCache = new Map();
+const probeCache = { at: 0, services: null };
 
-// ─── Auth & CORS ──────────────────────────────────────────────────
+const RANGES = { "15m": 15, "1h": 60, "6h": 360, "24h": 1440, "7d": 10080 };
 
-function corsHeaders(request, env) {
-  const origin = request?.headers?.get("Origin") || "";
-  const allowed = !origin
-    || origin.includes("localhost")
-    || origin.includes("127.0.0.1")
-    || origin.endsWith(".pages.dev")
-    || (env?.ALLOWED_ORIGIN && origin === env.ALLOWED_ORIGIN);
-
-  return {
-    "Access-Control-Allow-Origin": allowed ? (origin || "*") : (env?.ALLOWED_ORIGIN || "null"),
-    "Access-Control-Allow-Methods": "GET, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Request-ID, X-Admin-Key",
+function response(data, status = 200, request, env) {
+  const origin = request.headers.get("Origin") || "";
+  const allowedOrigin = env?.ALLOWED_ORIGIN || new URL(request.url).origin;
+  const headers = {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, X-Admin-Key",
     "Vary": "Origin"
   };
+  if (!origin || origin === allowedOrigin) headers["Access-Control-Allow-Origin"] = origin || allowedOrigin;
+  return new Response(status === 204 ? null : JSON.stringify(data), { status, headers });
 }
 
-function verifyAuth(request, env) {
-  const key = env?.OBSERVABILITY_API_KEY || env?.MONITORING_API_KEY || env?.ADMIN_TOKEN;
-  if (!key) return { authorized: true }; // Open if no key configured
+function authorized(request, env) {
+  const expected = env?.OBSERVABILITY_API_KEY;
+  if (!expected) return false;
+  const supplied = request.headers.get("X-Admin-Key") || "";
+  if (supplied.length !== expected.length) return false;
+  let diff = 0;
+  for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ supplied.charCodeAt(i);
+  return diff === 0;
+}
 
-  const authHeader = request.headers.get("Authorization") || "";
-  const adminKey = request.headers.get("X-Admin-Key") || "";
-  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : authHeader.trim();
+function rangeWindow(range) {
+  const minutes = RANGES[range] || RANGES["1h"];
+  const to = Math.floor(Date.now() / QUERY_CACHE_MS) * QUERY_CACHE_MS;
+  return { from: to - minutes * 60_000, to };
+}
 
-  if (token === key || adminKey === key) return { authorized: true };
-  return {
-    authorized: false,
-    response: json({ success: false, error: "Unauthorized. Admin credentials required." }, 401, request, env)
+function cached(key) {
+  const item = queryCache.get(key);
+  if (item && Date.now() - item.at < QUERY_CACHE_MS) return item.value;
+  if (item) queryCache.delete(key);
+  return null;
+}
+
+function saveCache(key, value) {
+  if (queryCache.size > 30) queryCache.delete(queryCache.keys().next().value);
+  queryCache.set(key, { at: Date.now(), value });
+  return value;
+}
+
+async function cloudflareQuery(env, { view, range, limit, parameters = {} }) {
+  if (!env.CF_ACCOUNT_ID || !env.CF_OBSERVABILITY_API_TOKEN) {
+    return { configured: false, error: "Set CF_ACCOUNT_ID and CF_OBSERVABILITY_API_TOKEN Worker secrets to enable Cloudflare telemetry." };
+  }
+  const safeLimit = Math.max(1, Math.min(Number(limit) || 100, 200));
+  const key = JSON.stringify({ view, range, safeLimit, parameters });
+  const hit = cached(key);
+  if (hit) return hit;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS);
+  try {
+    const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(env.CF_ACCOUNT_ID)}/workers/observability/telemetry/query`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${env.CF_OBSERVABILITY_API_TOKEN}`,
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      body: JSON.stringify({
+        queryId: `cloudcart-live-${view}`,
+        timeframe: rangeWindow(range),
+        view,
+        limit: safeLimit,
+        ignoreSeries: true,
+        parameters: { datasets: ["cloudflare-workers"], ...parameters }
+      }),
+      signal: controller.signal
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok || body?.success === false || body?.errors?.length) {
+      return { configured: true, error: body?.errors?.map(e => e.message).join("; ") || `Cloudflare Observability API returned HTTP ${res.status}.`, status: res.status };
+    }
+    return saveCache(key, { configured: true, data: body?.result || body?.data || null, fetchedAt: new Date().toISOString() });
+  } catch (err) {
+    return { configured: true, error: err.name === "AbortError" ? "Cloudflare telemetry query timed out." : "Cloudflare telemetry API is unavailable." };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function cloudflareAccountMetrics(env, range) {
+  if (!env.CF_ACCOUNT_ID || !env.CF_OBSERVABILITY_API_TOKEN) return { configured: false, error: "Cloudflare account analytics are not configured." };
+  const window = rangeWindow(range);
+  const start = new Date(window.from);
+  const end = new Date(window.to);
+  const variables = {
+    accountTag: env.CF_ACCOUNT_ID,
+    datetimeStart: start.toISOString(),
+    datetimeEnd: end.toISOString(),
+    dateStart: start.toISOString().slice(0, 10),
+    dateEnd: end.toISOString().slice(0, 10),
+    scriptName: env.CF_WORKER_NAME || "cloudcart-worker",
+    databaseId: env.CF_D1_DATABASE_ID || ""
   };
+  const cacheKey = `graphql:${JSON.stringify(variables)}`;
+  const hit = cached(cacheKey);
+  if (hit) return hit;
+  const query = `query CloudCartOperationalMetrics($accountTag: string!, $datetimeStart: string, $datetimeEnd: string, $dateStart: Date, $dateEnd: Date, $scriptName: string, $databaseId: string) { viewer { accounts(filter: { accountTag: $accountTag }) { workersInvocationsAdaptive(limit: 1000, filter: { scriptName: $scriptName, datetime_geq: $datetimeStart, datetime_leq: $datetimeEnd }) { sum { requests errors subrequests } quantiles { cpuTimeP50 cpuTimeP99 } dimensions { status } } d1AnalyticsAdaptiveGroups(limit: 1000, filter: { date_geq: $dateStart, date_leq: $dateEnd, databaseId: $databaseId }) { sum { readQueries writeQueries rowsRead rowsWritten queryBatchTimeMs } quantiles { queryBatchTimeMsP90 } } durableObjectsInvocationsAdaptiveGroups(limit: 1000, filter: { date_geq: $dateStart, date_leq: $dateEnd, scriptName: $scriptName }) { sum { requests responseBodySize } } } } }`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS);
+  try {
+    const res = await fetch("https://api.cloudflare.com/client/v4/graphql", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${env.CF_OBSERVABILITY_API_TOKEN}`, "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify({ query, variables }),
+      signal: controller.signal
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok || body?.errors?.length) return { configured: true, error: body?.errors?.map(e => e.message).join("; ") || `Cloudflare GraphQL returned HTTP ${res.status}.`, status: res.status };
+    return saveCache(cacheKey, {
+      configured: true,
+      data: body?.data?.viewer?.accounts?.[0] || null,
+      dateCoverage: `D1 and Durable Object analytics are grouped by UTC date (${variables.dateStart} through ${variables.dateEnd}), so sub-day selections include the full UTC date.`,
+      fetchedAt: new Date().toISOString()
+    });
+  } catch {
+    return { configured: true, error: "Cloudflare GraphQL Analytics API is unavailable." };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
-function json(data, status = 200, request = null, env = null) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { "Content-Type": "application/json", ...corsHeaders(request, env) }
-  });
+function telemetryFailure(result) {
+  return result?.error ? result : null;
 }
 
-function qp(url, key, fallback) {
-  return url.searchParams.get(key) || fallback;
+function healthSnapshot(env, request) {
+  const configured = Boolean(env?.CF_ACCOUNT_ID && env?.CF_OBSERVABILITY_API_TOKEN);
+  const requestUrl = new URL(request.url);
+  let allowedUrl = null;
+  try { if (env?.ALLOWED_ORIGIN) allowedUrl = new URL(env.ALLOWED_ORIGIN); } catch { /* Invalid optional origin does not break health reporting. */ }
+  const pagesPathObserved = requestUrl.hostname.endsWith(".pages.dev") || Boolean(allowedUrl && requestUrl.origin === allowedUrl.origin);
+  const services = [
+    { id: "pages", name: "Cloudflare Pages", tier: "Frontend", status: pagesPathObserved ? "HEALTHY" : "UNKNOWN", signal: pagesPathObserved ? "Current Pages-hosted request" : "No Pages-hosted request observed", detail: pagesPathObserved ? "The static dashboard loaded and its API request reached this Worker." : "A direct Worker request cannot verify Pages availability." },
+    { id: "pages_functions", name: "Pages Functions / Service Binding", tier: "Proxy", status: pagesPathObserved ? "HEALTHY" : "UNKNOWN", signal: pagesPathObserved ? "Current proxied API request" : "No Pages-hosted request observed", detail: pagesPathObserved ? "The observability API request passed through the Pages Function and service binding." : "A direct Worker request cannot verify the Pages proxy." },
+    { id: "worker", name: "CloudCart Worker", tier: "API", status: "HEALTHY", signal: "Current request", detail: "The Worker is serving this health response." },
+    { id: "d1", name: "Cloudflare D1", tier: "Database", status: "UNKNOWN", signal: "Not actively probed", detail: "Use Run health check to issue one SELECT 1 probe." },
+    { id: "kv", name: "Cloudflare KV", tier: "Storage", status: "UNKNOWN", signal: "Not actively probed", detail: "Use Run health check to issue one KV read." },
+    { id: "inventory_do", name: "Inventory Durable Object", tier: "Durable Object", status: "UNKNOWN", signal: "Not actively probed", detail: "Use Run health check to invoke the InventoryDO health endpoint." },
+    { id: "cloudflare_telemetry", name: "Cloudflare Observability API", tier: "Telemetry", status: configured ? "UNKNOWN" : "NOT_CONFIGURED", signal: configured ? "Not queried yet" : "Missing secrets", detail: configured ? "Native logs and traces are queried on demand." : "Configure CF_ACCOUNT_ID and CF_OBSERVABILITY_API_TOKEN." }
+  ];
+  if (probeCache.services && Date.now() - probeCache.at < 30_000) {
+    for (const probed of probeCache.services) {
+      const index = services.findIndex(service => service.id === probed.id);
+      if (index >= 0) services[index] = { ...probed, cached: true, signal: "Recent active probe", checkedAt: new Date(probeCache.at).toISOString() };
+    }
+  }
+  return services;
 }
 
-// ─── Main Route Handler ────────────────────────────────────────────
+async function probeDependencies(env) {
+  if (probeCache.services && Date.now() - probeCache.at < 30_000) {
+    return probeCache.services.map(s => ({ ...s, cached: true, checkedAt: new Date(probeCache.at).toISOString() }));
+  }
+  const checks = [
+    (async () => {
+      if (!env?.DB) return { id: "d1", name: "Cloudflare D1", tier: "Database", status: "NOT_CONFIGURED", detail: "DB binding is missing." };
+      const start = performance.now();
+      try {
+        const result = await env.DB.prepare("SELECT 1 AS ok").first();
+        return { id: "d1", name: "Cloudflare D1", tier: "Database", status: result?.ok === 1 ? "HEALTHY" : "DEGRADED", latencyMs: Math.round(performance.now() - start), checkedAt: new Date().toISOString(), detail: "One explicit SELECT 1 probe." };
+      } catch { return { id: "d1", name: "Cloudflare D1", tier: "Database", status: "DOWN", latencyMs: Math.round(performance.now() - start), checkedAt: new Date().toISOString(), detail: "D1 probe failed." }; }
+    })(),
+    (async () => {
+      if (!env?.CLOUDCART_KV) return { id: "kv", name: "Cloudflare KV", tier: "Storage", status: "NOT_CONFIGURED", detail: "CLOUDCART_KV binding is missing." };
+      const start = performance.now();
+      try {
+        await env.CLOUDCART_KV.get("__cloudcart_health_probe_v1");
+        return { id: "kv", name: "Cloudflare KV", tier: "Storage", status: "HEALTHY", latencyMs: Math.round(performance.now() - start), checkedAt: new Date().toISOString(), detail: "One explicit KV read probe (counts toward KV read quota)." };
+      } catch { return { id: "kv", name: "Cloudflare KV", tier: "Storage", status: "DOWN", latencyMs: Math.round(performance.now() - start), checkedAt: new Date().toISOString(), detail: "KV probe failed." }; }
+    })(),
+    (async () => {
+      if (!env?.INVENTORY_DO) return { id: "inventory_do", name: "Inventory Durable Object", tier: "Durable Object", status: "NOT_CONFIGURED", detail: "INVENTORY_DO binding is missing." };
+      const start = performance.now();
+      try {
+        const stub = env.INVENTORY_DO.get(env.INVENTORY_DO.idFromName("cloudcart-inventory-global"));
+        const res = await stub.fetch("http://do/health-ping");
+        return { id: "inventory_do", name: "Inventory Durable Object", tier: "Durable Object", status: res.ok ? "HEALTHY" : "DEGRADED", latencyMs: Math.round(performance.now() - start), checkedAt: new Date().toISOString(), detail: `Explicit health invocation returned HTTP ${res.status}.` };
+      } catch { return { id: "inventory_do", name: "Inventory Durable Object", tier: "Durable Object", status: "DOWN", latencyMs: Math.round(performance.now() - start), checkedAt: new Date().toISOString(), detail: "Durable Object health invocation failed." }; }
+    })()
+  ];
+  const results = await Promise.all(checks);
+  probeCache.at = Date.now();
+  probeCache.services = results;
+  return results;
+}
 
-export async function handleObservabilityRoute(request, env, ctx, path, url) {
-  // CORS preflight
-  if (request.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: corsHeaders(request, env) });
+export async function handleObservabilityRoute(request, env, _ctx, path, url) {
+  if (!path.startsWith("/api/observability")) return null;
+  if (request.method === "OPTIONS") return response(null, 204, request, env);
+  if (!authorized(request, env)) return response({ success: false, error: "Unauthorized or observability access is not configured." }, 401, request, env);
+
+  if (path === "/api/observability/health" && request.method === "GET") {
+    const services = url.searchParams.get("probe") === "1" ? await probeDependencies(env) : healthSnapshot(env, request);
+    const statuses = services.map(s => s.status);
+    const overallStatus = statuses.includes("DOWN") ? "DOWN" : statuses.includes("DEGRADED") ? "DEGRADED" : statuses.includes("UNKNOWN") || statuses.includes("NOT_CONFIGURED") ? "UNKNOWN" : "HEALTHY";
+    return response({ success: true, data: { overallStatus, timestamp: new Date().toISOString(), probe: url.searchParams.get("probe") === "1", services } }, 200, request, env);
   }
 
-  // /health is public — used by uptime monitors and edge pingers
-  if (path !== "/api/observability/health") {
-    const auth = verifyAuth(request, env);
-    if (!auth.authorized) return auth.response;
+  if (path === "/api/observability/logs" && request.method === "GET") {
+    const result = await cloudflareQuery(env, { view: "events", range: url.searchParams.get("range"), limit: url.searchParams.get("limit"), parameters: { datasets: ["cloudflare-workers"] } });
+    if (telemetryFailure(result)) return response({ success: false, error: result.error, configured: result.configured }, result.configured ? 502 : 503, request, env);
+    return response({ success: true, data: result }, 200, request, env);
   }
 
-  // ── Health ─────────────────────────────────────────────────────
-
-  if (path === "/api/observability/health") {
-    const health = await checkSubsystems(env);
-    return json({ success: true, data: health }, 200, request, env);
-  }
-
-  if (path === "/api/observability/services") {
-    const health = await checkSubsystems(env);
-    return json({
-      success: true,
-      data: {
-        timestamp: health.timestamp,
-        overallStatus: health.overallStatus,
-        services: health.services
+  if (path === "/api/observability/metrics" && request.method === "GET") {
+    const selectedRange = url.searchParams.get("range");
+    const [result, accountMetrics] = await Promise.all([cloudflareQuery(env, {
+      view: "calculations", range: url.searchParams.get("range"), limit: 100,
+      parameters: {
+        datasets: ["cloudflare-workers"],
+        calculations: [
+          { operator: "count", alias: "events" },
+          { operator: "p95", alias: "wall_time_p95_ms", key: "$workers.wallTimeMs", keyType: "number" },
+          { operator: "p99", alias: "wall_time_p99_ms", key: "$workers.wallTimeMs", keyType: "number" }
+        ],
+        groupBys: [{ type: "string", value: "$cloudflare.binding.name" }]
       }
-    }, 200, request, env);
+    }), cloudflareAccountMetrics(env, selectedRange)]);
+    if (telemetryFailure(result) && telemetryFailure(accountMetrics)) {
+      return response({ success: false, error: `${result.error} ${accountMetrics.error}`, configured: result.configured || accountMetrics.configured }, result.configured || accountMetrics.configured ? 502 : 503, request, env);
+    }
+    return response({ success: true, data: { nativeBindingActivity: result, accountMetrics }, fetchedAt: new Date().toISOString() }, 200, request, env);
   }
 
-  // ── Overview (summary of all three pillars) ─────────────────────
-
-  if (path === "/api/observability/overview") {
-    const range = qp(url, "range", "1h");
-    const [health, reqMetrics, bizMetrics] = await Promise.all([
-      checkSubsystems(env),
-      Promise.resolve(getRequestMetrics({ range })),
-      Promise.resolve(getBusinessMetrics(range))
-    ]);
-    const doService = health.services.find(s => s.id === "inventory_do");
-
-    return json({
-      success: true,
-      data: {
-        timestamp: new Date().toISOString(),
-        timeRange: range,
-        systemHealth: {
-          overallStatus: health.overallStatus,
-          healthyServices: health.healthyCount,
-          degradedServices: health.degradedCount,
-          failedServices: health.failedCount,
-          totalServices: health.totalServices,
-          lastChecked: health.timestamp
-        },
-        requestMetrics: {
-          totalRequests: reqMetrics.summary.totalRequests,
-          totalErrors: reqMetrics.summary.totalErrors,
-          errorRate: reqMetrics.summary.errorRate,
-          avgLatencyMs: reqMetrics.summary.latency.avg,
-          p50Ms: reqMetrics.summary.latency.p50,
-          p95Ms: reqMetrics.summary.latency.p95,
-          p99Ms: reqMetrics.summary.latency.p99
-        },
-        businessMetrics: {
-          checkoutsTotal: bizMetrics.counters.checkouts_total,
-          checkoutsSucceeded: bizMetrics.counters.checkouts_succeeded,
-          checkoutsFailed: bizMetrics.counters.checkouts_failed,
-          revenueTotalCents: bizMetrics.counters.revenue_total_cents,
-          revenueTotal: bizMetrics.counters.revenue_total,
-          productsCreated: bizMetrics.counters.products_created,
-          productsUpdated: bizMetrics.counters.products_updated,
-          productsDeleted: bizMetrics.counters.products_deleted,
-          feedbackSubmitted: bizMetrics.counters.feedback_submitted
-        },
-        activeWebSocketConnections: doService?.details?.activeConnections ?? 0
-      }
-    }, 200, request, env);
+  if (path === "/api/observability/traces" && request.method === "GET") {
+    const result = await cloudflareQuery(env, { view: "traces", range: url.searchParams.get("range"), limit: url.searchParams.get("limit") });
+    if (telemetryFailure(result)) return response({ success: false, error: result.error, configured: result.configured }, result.configured ? 502 : 503, request, env);
+    return response({ success: true, data: result }, 200, request, env);
   }
 
-  // ── PILLAR 1: Logs ─────────────────────────────────────────────
-
-  if (path === "/api/observability/logs") {
-    const result = getLogs({
-      range:    qp(url, "range",    "1h"),
-      level:    qp(url, "level",    "all"),
-      service:  qp(url, "service",  "all"),
-      endpoint: qp(url, "endpoint", "all"),
-      search:   qp(url, "search",   ""),
-      limit:    Math.min(parseInt(qp(url, "limit",  "50"), 10), 200),
-      offset:   parseInt(qp(url, "offset", "0"), 10)
-    });
-    return json({ success: true, data: result }, 200, request, env);
+  if (path === "/api/observability/probe" && request.method === "POST") {
+    return response({ success: true, data: { services: await probeDependencies(env), cachedForSeconds: 30 } }, 200, request, env);
   }
 
-  if (path.startsWith("/api/observability/logs/")) {
-    const logId = path.split("/")[4];
-    const log = getLogById(logId);
-    if (!log) return json({ success: false, error: "Log entry not found" }, 404, request, env);
-    return json({ success: true, data: log }, 200, request, env);
-  }
-
-  // ── PILLAR 2: Metrics ──────────────────────────────────────────
-
-  if (path === "/api/observability/metrics") {
-    const range = qp(url, "range", "1h");
-    const reqM = getRequestMetrics({ range });
-    const bizM = getBusinessMetrics(range);
-    return json({ success: true, data: { timeRange: range, requests: reqM, business: bizM } }, 200, request, env);
-  }
-
-  if (path === "/api/observability/metrics/requests") {
-    const result = getRequestMetrics({
-      range:    qp(url, "range",    "1h"),
-      endpoint: qp(url, "endpoint", "all"),
-      status:   qp(url, "status",   "all")
-    });
-    return json({ success: true, data: result }, 200, request, env);
-  }
-
-  if (path === "/api/observability/metrics/business") {
-    const result = getBusinessMetrics(qp(url, "range", "1h"));
-    return json({ success: true, data: result }, 200, request, env);
-  }
-
-  if (path === "/api/observability/metrics/infra") {
-    const result = await getInfraMetrics(env);
-    return json({ success: true, data: result }, 200, request, env);
-  }
-
-  // ── PILLAR 3: Traces ───────────────────────────────────────────
-
-  if (path === "/api/observability/traces") {
-    const result = getTraces({
-      range:         qp(url, "range",         "1h"),
-      endpoint:      qp(url, "endpoint",      "all"),
-      status:        qp(url, "status",        "all"),
-      businessEvent: qp(url, "businessEvent", "all"),
-      limit:         Math.min(parseInt(qp(url, "limit",  "50"), 10), 200),
-      offset:        parseInt(qp(url, "offset", "0"), 10)
-    });
-    return json({ success: true, data: result }, 200, request, env);
-  }
-
-  if (path.startsWith("/api/observability/traces/")) {
-    const traceId = path.split("/")[4];
-    const trace = getTraceById(traceId);
-    if (!trace) return json({ success: false, error: "Trace not found" }, 404, request, env);
-    return json({ success: true, data: trace }, 200, request, env);
-  }
-
-  return null; // not a route we handle — let caller return 404
+  return response({ success: false, error: "Observability route not found." }, 404, request, env);
 }

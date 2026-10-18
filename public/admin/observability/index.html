@@ -18,7 +18,7 @@
       <div class="dot" id="healthDot"></div>
       <div>
         <h1>CloudCart Observability</h1>
-        <span id="overallStatusText">Checking system health…</span>
+        <span id="overallStatusText">Loading observed service state…</span>
       </div>
     </div>
     <nav class="header-nav">
@@ -44,6 +44,8 @@
       <option value="60000">1 min</option>
     </select>
     <button class="btn btn-primary" id="refreshBtn">↻ Refresh</button>
+    <button class="btn btn-ghost" id="probeBtn" title="Runs one D1 query, one KV read and one Durable Object request">Run health check</button>
+    <button class="btn btn-ghost" id="signOutBtn" title="Forget dashboard access key">Sign out</button>
     <span class="last-updated" id="lastUpdated">—</span>
   </div>
 
@@ -78,8 +80,8 @@
       <div class="card empty-state">⟳ Loading services…</div>
     </div>
 
-    <p class="section-title">D1 Recent Queries</p>
-    <div class="obs-table-wrap" id="d1RecentQueries"><div class="empty-state">⟳ Loading…</div></div>
+    <p class="section-title">Health check cost</p>
+    <div class="card"><div class="card-sub">Passive refreshes do not call D1, KV, or Durable Objects. “Run health check” performs one D1 query, one KV read, and one Durable Object request. Results are reused for 30 seconds.</div></div>
   </section>
 
   <!-- ── LOGS ── -->
@@ -95,9 +97,7 @@
       <select id="logService">
         <option value="all">All Services</option>
         <option value="worker">Worker</option>
-        <option value="d1">D1</option>
-        <option value="kv">KV</option>
-        <option value="inventory_do">InventoryDO</option>
+        <option value="inventorydo">InventoryDO</option>
       </select>
       <input id="logSearch" type="text" placeholder="Search logs…" style="width:220px;">
       <button class="btn btn-ghost" onclick="loadLogs()">Filter</button>
@@ -115,62 +115,14 @@
       <div class="empty-state">⟳ Loading…</div>
     </div>
 
-    <p class="section-title">Business Event Counters</p>
-    <div class="grid-4" id="bizCounters">
-      <div class="card"><div class="card-label">Products Created</div><div class="card-value" id="mProdCreated">—</div></div>
-      <div class="card"><div class="card-label">Products Updated</div><div class="card-value" id="mProdUpdated">—</div></div>
-      <div class="card"><div class="card-label">Checkouts Success</div><div class="card-value text-success" id="mChkOk">—</div></div>
-      <div class="card"><div class="card-label">Checkouts Failed</div><div class="card-value text-error" id="mChkFail">—</div></div>
-    </div>
-
-    <p class="section-title">Infrastructure Counters</p>
-    <div class="grid-3" id="infraCards">
-      <div class="card">
-        <div class="card-label">D1 Database</div>
-        <div style="display:flex;gap:1.5rem;margin-top:0.5rem;">
-          <div><div style="font-size:0.7rem;color:var(--text-muted)">Reads</div><div style="font-size:1.3rem;font-weight:700" id="mD1R">—</div></div>
-          <div><div style="font-size:0.7rem;color:var(--text-muted)">Writes</div><div style="font-size:1.3rem;font-weight:700" id="mD1W">—</div></div>
-          <div><div style="font-size:0.7rem;color:var(--text-muted)">Slow</div><div style="font-size:1.3rem;font-weight:700 text-warn" id="mD1Slow">—</div></div>
-          <div><div style="font-size:0.7rem;color:var(--text-muted)">Errors</div><div style="font-size:1.3rem;font-weight:700;color:var(--error)" id="mD1Err">—</div></div>
-        </div>
-      </div>
-      <div class="card">
-        <div class="card-label">KV Cache</div>
-        <div style="display:flex;gap:1.5rem;margin-top:0.5rem;">
-          <div><div style="font-size:0.7rem;color:var(--text-muted)">Gets</div><div style="font-size:1.3rem;font-weight:700" id="mKVGet">—</div></div>
-          <div><div style="font-size:0.7rem;color:var(--text-muted)">Puts</div><div style="font-size:1.3rem;font-weight:700" id="mKVPut">—</div></div>
-          <div><div style="font-size:0.7rem;color:var(--text-muted)">Errors</div><div style="font-size:1.3rem;font-weight:700;color:var(--error)" id="mKVErr">—</div></div>
-        </div>
-      </div>
-      <div class="card">
-        <div class="card-label">InventoryDO</div>
-        <div style="display:flex;gap:1.5rem;margin-top:0.5rem;">
-          <div><div style="font-size:0.7rem;color:var(--text-muted)">Active WS</div><div style="font-size:1.3rem;font-weight:700" id="mDOConn">—</div></div>
-          <div><div style="font-size:0.7rem;color:var(--text-muted)">Purchases</div><div style="font-size:1.3rem;font-weight:700" id="mDOPurch">—</div></div>
-          <div><div style="font-size:0.7rem;color:var(--text-muted)">Err</div><div style="font-size:1.3rem;font-weight:700;color:var(--error)" id="mDOErr">—</div></div>
-        </div>
-      </div>
-    </div>
-
-    <p class="section-title">D1 Table Rows</p>
-    <div class="obs-table-wrap" id="d1TablesTable"><div class="empty-state">⟳ Loading…</div></div>
+    <p class="section-title">Cloudflare calculation response</p>
+    <div class="obs-table-wrap" id="metricsData"><div class="empty-state">⟳ Loading…</div></div>
   </section>
 
   <!-- ── TRACES ── -->
   <section class="tab-view" id="view-traces">
     <div class="log-filters">
-      <select id="traceStatus">
-        <option value="all">All Statuses</option>
-        <option value="ok">OK only</option>
-        <option value="error">Errors only</option>
-      </select>
-      <select id="traceEvent">
-        <option value="all">All Events</option>
-        <option value="CHECKOUT_SUCCEEDED">Checkout Succeeded</option>
-        <option value="CHECKOUT_FAILED">Checkout Failed</option>
-        <option value="PRODUCT_CREATED">Product Created</option>
-      </select>
-      <button class="btn btn-ghost" onclick="loadTraces()">Filter</button>
+      <span class="text-muted">Cloudflare-native sampled traces · use Refresh to reload</span>
     </div>
 
     <div class="waterfall-wrap" id="waterfallPanel" style="display:none;">
