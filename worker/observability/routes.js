@@ -1,5 +1,5 @@
-// Admin API for Cloudflare-native, short-retention observability data.
-// No logs, traces, or metrics are written to D1/KV by this module.
+// Admin API for Cloudflare-native health, metrics, and short-retention logs.
+// No observability data is written to D1/KV by this module.
 
 const QUERY_CACHE_MS = 15_000;
 const QUERY_TIMEOUT_MS = 8_000;
@@ -148,7 +148,7 @@ function healthSnapshot(env, request) {
     { id: "d1", name: "Cloudflare D1", tier: "Database", status: "UNKNOWN", signal: "Not actively probed", detail: "Use Run health check to issue one SELECT 1 probe." },
     { id: "kv", name: "Cloudflare KV", tier: "Storage", status: "UNKNOWN", signal: "Not actively probed", detail: "Use Run health check to issue one KV read." },
     { id: "inventory_do", name: "Inventory Durable Object", tier: "Durable Object", status: "UNKNOWN", signal: "Not actively probed", detail: "Use Run health check to invoke the InventoryDO health endpoint." },
-    { id: "cloudflare_telemetry", name: "Cloudflare Observability API", tier: "Telemetry", status: configured ? "UNKNOWN" : "NOT_CONFIGURED", signal: configured ? "Not queried yet" : "Missing secrets", detail: configured ? "Native logs and traces are queried on demand." : "Configure CF_ACCOUNT_ID and CF_OBSERVABILITY_API_TOKEN." }
+    { id: "cloudflare_telemetry", name: "Cloudflare Observability API", tier: "Telemetry", status: configured ? "UNKNOWN" : "NOT_CONFIGURED", signal: configured ? "Not queried yet" : "Missing secrets", detail: configured ? "Native logs are queried on demand." : "Configure CF_ACCOUNT_ID and CF_OBSERVABILITY_API_TOKEN." }
   ];
   if (probeCache.services && Date.now() - probeCache.at < 30_000) {
     for (const probed of probeCache.services) {
@@ -248,32 +248,6 @@ export async function handleObservabilityRoute(request, env, _ctx, path, url) {
       return response({ success: false, error: `${result.error} ${accountMetrics.error}`, configured: result.configured || accountMetrics.configured }, result.configured || accountMetrics.configured ? 502 : 503, request, env);
     }
     return response({ success: true, data: { nativeBindingActivity: result, accountMetrics }, fetchedAt: new Date().toISOString() }, 200, request, env);
-  }
-
-  if (path === "/api/observability/traces" && request.method === "GET") {
-    const result = await cloudflareQuery(env, { view: "traces", range: url.searchParams.get("range"), limit: url.searchParams.get("limit") });
-    if (telemetryFailure(result)) return response({ success: false, error: result.error, configured: result.configured }, result.configured ? 502 : 503, request, env);
-    return response({ success: true, data: result }, 200, request, env);
-  }
-
-  if (path === "/api/observability/trace-spans" && request.method === "GET") {
-    const traceId = url.searchParams.get("traceId") || "";
-    if (!/^[a-f0-9]{16,64}$/i.test(traceId)) return response({ success: false, error: "A valid trace ID is required." }, 400, request, env);
-    const result = await cloudflareQuery(env, {
-      view: "events", range: url.searchParams.get("range"), limit: 100,
-      parameters: {
-        datasets: ["cloudflare-workers"],
-        filters: [{ key: "$metadata.traceId", operation: "eq", type: "string", value: traceId }]
-      }
-    });
-    if (telemetryFailure(result)) return response({ success: false, error: result.error, configured: result.configured }, result.configured ? 502 : 503, request, env);
-    const events = result?.data?.events?.events || [];
-    const spans = events.filter(event => {
-      const metadata = event?.$metadata || {};
-      const workers = event?.$workers || {};
-      return Boolean(metadata.spanId || workers.spanId || event?.spanId);
-    });
-    return response({ success: true, data: { traceId, spans, returnedEvents: events.length, fetchedAt: result.fetchedAt } }, 200, request, env);
   }
 
   if (path === "/api/observability/probe" && request.method === "POST") {

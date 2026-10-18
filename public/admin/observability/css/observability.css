@@ -172,8 +172,6 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 .log-detail { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem 1rem; margin: 0.5rem 0.75rem 0.75rem; font-family: var(--mono); font-size: 0.75rem; color: var(--text-dim); white-space: pre-wrap; word-break: break-all; display: none; }
 .log-row.expanded + .log-detail, .log-detail.visible { display: block; }
 .telemetry-json { padding: 1rem; color: var(--text-dim); font-family: var(--mono); font-size: 0.75rem; white-space: pre-wrap; overflow-wrap: anywhere; }
-.log-trace-link { font-size: 0.72rem; color: var(--accent); text-decoration: none; }
-.log-trace-link:hover { text-decoration: underline; }
 .log-count-pills { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
 .log-count-pill { font-size: 0.75rem; padding: 0.2rem 0.6rem; border-radius: 20px; font-weight: 500; }
 
@@ -184,33 +182,6 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 .latency-bar-wrap { flex: 1; background: var(--bg); border-radius: 3px; height: 6px; overflow: hidden; }
 .latency-bar { height: 100%; border-radius: 3px; background: var(--accent); transition: width 0.4s ease; }
 .latency-val { width: 50px; text-align: right; color: var(--text-dim); font-family: var(--mono); font-size: 0.72rem; }
-
-/* ── Traces ── */
-.trace-row td { font-family: var(--mono); font-size: 0.78rem; }
-.trace-filters { justify-content: space-between; }
-.trace-filters label { display: inline-flex; align-items: center; gap: 0.45rem; cursor: pointer; }
-.trace-filters input { accent-color: var(--accent); }
-.trace-detail { padding: 0; }
-.waterfall-wrap { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.1rem; margin-bottom: 1.5rem; }
-.waterfall-title { font-size: 0.85rem; font-weight: 600; margin-bottom: 0.75rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
-.waterfall-title span, .waterfall-axis, .waterfall-footnote { color: var(--text-muted); font-size: 0.72rem; font-weight: 400; }
-.waterfall-axis { display: grid; grid-template-columns: minmax(180px, 28%) 1fr auto; align-items: center; gap: 0.75rem; border-bottom: 1px solid var(--border); padding-bottom: 0.45rem; }
-.waterfall-axis > div { display: flex; justify-content: space-between; }
-.span-row { display: grid; grid-template-columns: minmax(180px, 28%) 1fr 80px; align-items: center; gap: 0.75rem; padding: 0.42rem 0; font-size: 0.78rem; border-bottom: 1px solid var(--border); }
-.span-label { min-width: 0; display: flex; flex-direction: column; gap: 0.15rem; }
-.span-service { color: var(--accent); font-size: 0.68rem; }
-.span-name-text { color: var(--text-dim); font-family: var(--mono); overflow-wrap: anywhere; }
-.span-track { flex: 1; position: relative; height: 18px; background: rgba(148,163,184,0.08); border-radius: 3px; overflow: hidden; }
-.span-bar { position: absolute; top: 3px; height: 12px; border-radius: 3px; min-width: 2px; }
-.span-bar.worker     { background: rgba(99,102,241,0.7); }
-.span-bar.d1         { background: rgba(16,185,129,0.7); }
-.span-bar.kv         { background: rgba(245,158,11,0.7); }
-.span-bar.inventory_do { background: rgba(59,130,246,0.7); }
-.span-bar.error      { background: rgba(239,68,68,0.7); }
-.span-dur { width: 52px; text-align: right; font-family: var(--mono); color: var(--text-muted); font-size: 0.72rem; }
-.span-unavailable { color: var(--text-muted); font-size: 0.7rem; }
-.waterfall-footnote { margin-top: 0.7rem; }
-@media (max-width: 700px) { .span-row, .waterfall-axis { grid-template-columns: minmax(110px, 35%) 1fr 64px; gap: 0.4rem; } .waterfall-axis > span:first-child { grid-column: 1 / -1; } }
 
 /* ── Empty / loading ── */
 .empty-state { padding: 3rem; text-align: center; color: var(--text-muted); }

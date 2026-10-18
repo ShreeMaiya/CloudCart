@@ -1,7 +1,7 @@
 // Live Cloudflare-native observability dashboard. Telemetry is queried on demand;
 // nothing is written to this project's D1 or KV for observability.
 const API = "/api/observability";
-let currentTab = "health";
+let currentTab = "healthmetrics";
 let refreshTimer = null;
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -14,9 +14,6 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("refreshBtn").addEventListener("click", () => loadTab(currentTab));
   document.getElementById("probeBtn").addEventListener("click", runHealthCheck);
   document.getElementById("rangeSelect").addEventListener("change", () => loadTab(currentTab));
-  document.getElementById("includeObservabilityTraces").addEventListener("change", () => {
-    if (currentTab === "traces") loadTraces();
-  });
   document.getElementById("autoRefreshSelect").addEventListener("change", event => {
     clearInterval(refreshTimer);
     const interval = Number(event.target.value);
@@ -29,10 +26,8 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 function loadTab(tab) {
-  if (tab === "health") return loadHealth(false);
+  if (tab === "healthmetrics") return Promise.all([loadHealth(false), loadMetrics()]);
   if (tab === "logs") return loadLogs();
-  if (tab === "metrics") return loadMetrics();
-  if (tab === "traces") return loadTraces();
 }
 
 function range() { return document.getElementById("rangeSelect").value; }
@@ -127,7 +122,6 @@ async function loadLogs() {
       wallTimeMs: workers.wallTimeMs ?? metadata.duration ?? source.wallTimeMs ?? null,
       cpuTimeMs: workers.cpuTimeMs ?? source.cpuTimeMs ?? null,
       requestId: metadata.requestId || workers.requestId || id,
-      traceId: metadata.traceId || workers.traceId || null,
       level: String(metadata.level || source.level || (statusCode >= 500 ? "ERROR" : statusCode >= 400 ? "WARN" : "INFO")).toUpperCase(),
       searchText: JSON.stringify(events).toLowerCase()
     };
@@ -141,7 +135,7 @@ async function loadLogs() {
   });
   document.getElementById("logCountPills").innerHTML = `<span class="log-count-pill">${filtered.length} invocations returned · maximum 100 · logs configured at 100% sampling</span>`;
   if (!filtered.length) return setEmpty("logsContainer", "No recent Worker invocations returned for this range and filter.");
-  document.getElementById("logsContainer").innerHTML = `<table class="obs-table"><thead><tr><th>Time</th><th>Request</th><th>Status</th><th>Wall time</th><th>CPU</th><th>Service</th><th>Trace</th><th></th></tr></thead><tbody>${filtered.map((invocation, index) => `<tr><td>${formatTime(invocation.timestamp)}</td><td class="mono">${escapeHtml(invocation.requestLine)}</td><td>${invocation.statusCode == null ? "—" : `<span class="badge badge-${badgeClass(`${Math.floor(invocation.statusCode / 100)}xx`)}">${escapeHtml(invocation.statusCode)}</span>`}</td><td>${invocation.wallTimeMs == null ? "—" : `${Number(invocation.wallTimeMs).toFixed(1)} ms`}</td><td>${invocation.cpuTimeMs == null ? "—" : `${Number(invocation.cpuTimeMs).toFixed(1)} ms`}</td><td>${escapeHtml(invocation.service)}</td><td>${invocation.traceId ? `<button class="btn btn-ghost" onclick="openRelatedTrace('${escapeHtml(invocation.traceId)}')">View trace</button>` : "—"}</td><td><button class="btn btn-ghost" onclick="toggleDetail('invocation-${index}')">Details (${invocation.events.length})</button></td></tr><tr><td colspan="8"><pre id="invocation-${index}" class="log-detail">${escapeHtml(JSON.stringify({ requestId: invocation.requestId, traceId: invocation.traceId, events: invocation.events }, null, 2))}</pre></td></tr>`).join("")}</tbody></table>`;
+  document.getElementById("logsContainer").innerHTML = `<table class="obs-table"><thead><tr><th>Time</th><th>Request</th><th>Status</th><th>Wall time</th><th>CPU</th><th>Service</th><th></th></tr></thead><tbody>${filtered.map((invocation, index) => `<tr><td>${formatTime(invocation.timestamp)}</td><td class="mono">${escapeHtml(invocation.requestLine)}</td><td>${invocation.statusCode == null ? "—" : `<span class="badge badge-${badgeClass(`${Math.floor(invocation.statusCode / 100)}xx`)}">${escapeHtml(invocation.statusCode)}</span>`}</td><td>${invocation.wallTimeMs == null ? "—" : `${Number(invocation.wallTimeMs).toFixed(1)} ms`}</td><td>${invocation.cpuTimeMs == null ? "—" : `${Number(invocation.cpuTimeMs).toFixed(1)} ms`}</td><td>${escapeHtml(invocation.service)}</td><td><button class="btn btn-ghost" onclick="toggleDetail('invocation-${index}')">All details (${invocation.events.length})</button></td></tr><tr><td colspan="7"><pre id="invocation-${index}" class="log-detail">${escapeHtml(JSON.stringify({ requestId: invocation.requestId, service: invocation.service, request: invocation.requestLine, statusCode: invocation.statusCode, wallTimeMs: invocation.wallTimeMs, cpuTimeMs: invocation.cpuTimeMs, events: invocation.events }, null, 2))}</pre></td></tr>`).join("")}</tbody></table>`;
 }
 
 async function loadMetrics() {
@@ -183,87 +177,6 @@ function metricCard(label, value, detail) {
   return `<div class="card"><div class="card-label">${escapeHtml(label)}</div><div class="card-value">${escapeHtml(value)}</div><div class="card-sub">${escapeHtml(detail)}</div></div>`;
 }
 
-async function loadTraces(focusTraceId = null) {
-  const data = await fetchApi(`${API}/traces?range=${encodeURIComponent(range())}&limit=80`);
-  if (data?.error) return showError("tracesContainer", data.error);
-  const allTraces = data?.data?.traces || [];
-  const includeInternal = document.getElementById("includeObservabilityTraces")?.checked;
-  const appTraces = allTraces.filter(trace => !isObservabilityRequest(trace));
-  const visibleTraces = includeInternal ? allTraces : appTraces;
-  const traces = focusTraceId ? allTraces.filter(trace => trace.traceId === focusTraceId) : visibleTraces;
-  if (focusTraceId && !traces.length) return setEmpty("tracesContainer", "No matching sampled trace was returned for this request. Traces are sampled, so this request may have no trace record.");
-  if (!traces.length) return setEmpty("tracesContainer", allTraces.length ? "Only dashboard observability requests were returned in this time range. Try a wider range or enable “Include dashboard telemetry requests”." : "No recent traces were returned. Confirm tracing is enabled and check the selected time range or Cloudflare’s daily ingestion limit.");
-  document.getElementById("tracesContainer").innerHTML = `<table class="obs-table trace-row"><thead><tr><th>Trace ID</th><th>Transaction</th><th>Services</th><th>Duration</th><th>Started</th><th></th></tr></thead><tbody>${traces.map((trace, index) => `<tr><td class="mono">${escapeHtml(trace.traceId || "—")}</td><td>${escapeHtml(trace.rootTransactionName || trace.rootSpanName || "—")}</td><td>${escapeHtml(Array.isArray(trace.service) ? trace.service.join(", ") : trace.service || "—")}</td><td>${trace.traceDurationMs == null ? "—" : `${Number(trace.traceDurationMs).toFixed(1)} ms`}</td><td>${formatTime(trace.traceStartMs)}</td><td><button class="btn btn-ghost" onclick="openTraceDetails(${index}, '${escapeHtml(trace.traceId || "")}')">Waterfall</button></td></tr><tr><td colspan="6"><div class="log-detail trace-detail" id="trace-${index}"></div></td></tr>`).join("")}</tbody></table>`;
-}
-
-function isObservabilityRequest(trace) {
-  const transaction = String(trace?.rootTransactionName || trace?.rootSpanName || "").toLowerCase();
-  return transaction.includes("/api/observability/");
-}
-
-async function openTraceDetails(index, traceId) {
-  const panel = document.getElementById(`trace-${index}`);
-  if (!panel) return;
-  if (panel.classList.contains("visible")) { panel.classList.remove("visible"); return; }
-  panel.classList.add("visible");
-  if (panel.dataset.loaded === "true" || panel.dataset.loading === "true") return;
-  panel.dataset.loading = "true";
-  panel.innerHTML = '<div class="empty-state">Loading sampled span timings…</div>';
-  const data = await fetchApi(`${API}/trace-spans?traceId=${encodeURIComponent(traceId)}&range=${encodeURIComponent(range())}`);
-  panel.dataset.loading = "false";
-  panel.dataset.loaded = "true";
-  if (data?.error) {
-    panel.innerHTML = `<div class="empty-state">Could not load span timings: ${escapeHtml(data.error)}</div>`;
-    return;
-  }
-  panel.innerHTML = renderTraceWaterfall(data?.data || {}, data?.data?.spans || []);
-}
-
-function renderTraceWaterfall(trace, events) {
-  const spans = events.map(event => {
-    const metadata = event?.$metadata || {};
-    const workers = event?.$workers || {};
-    const source = parseSource(event?.source);
-    const get = (...values) => values.find(value => value !== undefined && value !== null && value !== "");
-    const rawStart = get(metadata.startTime, event.startTime, metadata.timestamp, event.timestamp, source.startTime, source.timestamp);
-    const start = rawStart == null ? null : (typeof rawStart === "number" ? rawStart : Date.parse(rawStart));
-    const rawDuration = get(metadata.duration, event.duration, workers.wallTimeMs, source.duration, source.wallTimeMs);
-    const duration = rawDuration == null || !Number.isFinite(Number(rawDuration)) ? null : Number(rawDuration);
-    const name = get(metadata.spanName, event.spanName, source.spanName, metadata.trigger, source.message, event.message, workers.eventType, "Worker span");
-    const service = get(metadata.service, workers.scriptName, workers.entrypoint, source.service, "Cloudflare Worker");
-    return { name: String(name), service: String(service), start: Number.isFinite(start) ? start : null, duration, status: get(metadata.statusCode, event.statusCode, source.statusCode), error: get(metadata.error, event.error, source.error), spanId: get(metadata.spanId, workers.spanId, event.spanId) };
-  }).sort((a, b) => (a.start ?? Infinity) - (b.start ?? Infinity));
-  if (!spans.length) return '<div class="empty-state">Cloudflare returned the trace summary, but no span timing records for this trace. Per-service timing is unavailable for this sampled request.</div>';
-
-  const timed = spans.filter(span => span.start != null && span.duration != null && span.duration >= 0);
-  if (!timed.length) return `<div class="empty-state">Cloudflare returned ${spans.length} span record${spans.length === 1 ? "" : "s"}, but did not include start times and durations needed for a waterfall.</div>${renderSpanList(spans)}`;
-  const minStart = Math.min(...timed.map(span => span.start));
-  const maxEnd = Math.max(...timed.map(span => span.start + span.duration));
-  const total = Math.max(maxEnd - minStart, 1);
-  const ticks = [0, 0.5, 1].map(fraction => `<span>${fraction === 0 ? "0 ms" : `${(total * fraction).toFixed(1)} ms`}</span>`).join("");
-  const rows = spans.map(span => {
-    const offset = span.start == null ? null : Math.max(0, (span.start - minStart) / total * 100);
-    const width = span.duration == null ? null : Math.max(0.5, span.duration / total * 100);
-    const tone = serviceTone(`${span.service} ${span.name}`);
-    const timing = span.duration == null ? "Timing unavailable" : `${span.duration.toFixed(2)} ms`;
-    const bar = offset == null || width == null ? '<span class="span-unavailable">Timing unavailable</span>' : `<div class="span-track"><div class="span-bar ${tone}" style="left:${offset}%;width:${Math.min(width, 100 - offset)}%" title="${escapeHtml(span.service)} · ${escapeHtml(timing)}"></div></div>`;
-    return `<div class="span-row"><div class="span-label"><span class="span-service ${tone}">${escapeHtml(span.service)}</span><span class="span-name-text">${escapeHtml(span.name)}</span></div>${bar}<span class="span-dur">${escapeHtml(timing)}</span></div>`;
-  }).join("");
-  return `<div class="waterfall-wrap"><div class="waterfall-title">Request timeline <span>${timed.length} of ${spans.length} spans have timing</span></div><div class="waterfall-axis"><span>Relative to first recorded span</span><div>${ticks}</div><span>Duration ${total.toFixed(2)} ms</span></div><div class="waterfall-rows">${rows}</div><div class="waterfall-footnote">Cloudflare returns sampled spans. Missing D1, KV, or Durable Object bars mean no corresponding timed span was returned; timings are not inferred.</div></div>`;
-}
-
-function renderSpanList(spans) {
-  return `<div class="waterfall-rows">${spans.map(span => `<div class="span-row"><div class="span-label"><span class="span-service">${escapeHtml(span.service)}</span><span class="span-name-text">${escapeHtml(span.name)}</span></div><span class="span-unavailable">${span.start == null ? "Start unavailable" : ""}${span.duration == null ? " · Duration unavailable" : ` · ${span.duration.toFixed(2)} ms`}</span></div>`).join("")}</div>`;
-}
-
-function serviceTone(value) {
-  const text = value.toLowerCase();
-  if (text.includes("d1")) return "d1";
-  if (text.includes("kv")) return "kv";
-  if (text.includes("durable") || text.includes("inventorydo")) return "inventory_do";
-  return "worker";
-}
-
 function parseSource(source) {
   if (source && typeof source === "object") return source;
   if (typeof source === "string") { try { return JSON.parse(source); } catch { return { message: source }; } }
@@ -276,11 +189,3 @@ function setEmpty(id, message) { document.getElementById(id).innerHTML = `<div c
 function showError(id, message) { setEmpty(id, message); }
 window.toggleDetail = id => { const element = document.getElementById(id); if (element) element.classList.toggle("visible"); };
 window.loadLogs = loadLogs;
-window.loadTraces = loadTraces;
-window.openTraceDetails = openTraceDetails;
-window.openRelatedTrace = traceId => {
-  document.querySelectorAll(".tab-btn").forEach(button => button.classList.toggle("active", button.dataset.tab === "traces"));
-  document.querySelectorAll(".tab-view").forEach(view => view.classList.toggle("active", view.id === "view-traces"));
-  currentTab = "traces";
-  loadTraces(traceId);
-};

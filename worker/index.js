@@ -57,7 +57,7 @@ export default {
       console.error(JSON.stringify({ level: "ERROR", service: "worker", requestId, endpoint: path, method: request.method, status: httpStatus, durationMs, message: errorText || "Server error" }));
     }
 
-    // ── Propagate traceId in response headers ─────────────────────
+    // Return the request ID so a request can be matched to its log entry.
     try {
       response.headers.set("X-Request-ID", requestId);
     } catch (_) {
