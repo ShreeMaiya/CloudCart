@@ -82,24 +82,6 @@
 
   <!-- ── REQUEST ACTIVITY ── -->
   <section class="tab-view" id="view-logs">
-    <div class="log-filters"><span class="text-muted">One row per returned Worker invocation. Expand Details to inspect all event fields Cloudflare returned for that invocation. Log sampling is set to 100%; Cloudflare may stop ingesting after the Free plan daily limit.</span></div>
-    <div class="log-filters">
-      <select id="logLevel" class="controls-select">
-        <option value="all">All Levels</option>
-        <option value="INFO">INFO</option>
-        <option value="WARN">WARN</option>
-        <option value="ERROR">ERROR</option>
-        <option value="DEBUG">DEBUG</option>
-      </select>
-      <select id="logService">
-        <option value="all">All Services</option>
-        <option value="worker">Worker</option>
-        <option value="inventorydo">InventoryDO</option>
-      </select>
-      <input id="logSearch" type="text" placeholder="Search logs…" style="width:220px;">
-      <button class="btn btn-ghost" onclick="loadLogs()">Filter</button>
-    </div>
-    <div class="log-count-pills" id="logCountPills"></div>
     <div class="obs-table-wrap" id="logsContainer">
       <div class="empty-state">⟳ Loading logs…</div>
     </div>
@@ -108,7 +90,6 @@
   <!-- ── METRICS ── -->
   <section class="tab-view" id="view-metrics">
     <p class="section-title">HTTP Request Performance</p>
-    <div class="log-filters"><span class="text-muted">Cloudflare account analytics; values are aggregated and may arrive with delay. Refresh re-queries Cloudflare; results are briefly cached.</span></div>
     <div class="obs-table-wrap" id="metricsRequestTable">
       <div class="empty-state">⟳ Select Metrics to load…</div>
     </div>

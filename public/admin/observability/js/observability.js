@@ -19,9 +19,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const interval = Number(event.target.value);
     if (interval > 0) refreshTimer = setInterval(() => loadTab(currentTab), interval);
   });
-  document.getElementById("logSearch").addEventListener("keydown", event => {
-    if (event.key === "Enter") loadLogs();
-  });
   loadTab(currentTab);
 });
 
@@ -124,17 +121,9 @@ async function loadLogs() {
       level: String(metadata.level || source.level || (statusCode >= 500 ? "ERROR" : statusCode >= 400 ? "WARN" : "INFO")).toUpperCase(),
       searchText: JSON.stringify(events).toLowerCase()
     };
-  }).sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime());
-  const level = document.getElementById("logLevel").value;
-  const service = document.getElementById("logService").value;
-  const search = document.getElementById("logSearch").value.trim().toLowerCase();
-  const filtered = invocations.filter(invocation => {
-    const normalizedService = String(invocation.service).toLowerCase().replace(/[^a-z0-9]/g, "");
-    return (level === "all" || invocation.level === level) && (service === "all" || normalizedService.includes(service.replace(/[^a-z0-9]/g, ""))) && (!search || invocation.searchText.includes(search));
-  });
-  document.getElementById("logCountPills").innerHTML = `<span class="log-count-pill">${filtered.length} invocations returned · maximum 100 · logs configured at 100% sampling</span>`;
-  if (!filtered.length) return setEmpty("logsContainer", "No recent Worker invocations returned for this range and filter.");
-  document.getElementById("logsContainer").innerHTML = `<table class="obs-table"><thead><tr><th>Time</th><th>Request</th><th>Status</th><th>Wall time</th><th>CPU</th><th>Service</th><th></th></tr></thead><tbody>${filtered.map((invocation, index) => `<tr><td>${formatTime(invocation.timestamp)}</td><td class="mono">${escapeHtml(invocation.requestLine)}</td><td>${invocation.statusCode == null ? "—" : `<span class="badge badge-${badgeClass(`${Math.floor(invocation.statusCode / 100)}xx`)}">${escapeHtml(invocation.statusCode)}</span>`}</td><td>${invocation.wallTimeMs == null ? "—" : `${Number(invocation.wallTimeMs).toFixed(1)} ms`}</td><td>${invocation.cpuTimeMs == null ? "—" : `${Number(invocation.cpuTimeMs).toFixed(1)} ms`}</td><td>${escapeHtml(invocation.service)}</td><td><button class="btn btn-ghost" onclick="toggleDetail('invocation-${index}')">All details (${invocation.events.length})</button></td></tr><tr><td colspan="7"><pre id="invocation-${index}" class="log-detail">${escapeHtml(JSON.stringify({ requestId: invocation.requestId, service: invocation.service, request: invocation.requestLine, statusCode: invocation.statusCode, wallTimeMs: invocation.wallTimeMs, cpuTimeMs: invocation.cpuTimeMs, events: invocation.events }, null, 2))}</pre></td></tr>`).join("")}</tbody></table>`;
+  invocations.sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime());
+  if (!invocations.length) return setEmpty("logsContainer", "No recent Worker invocations returned for this range.");
+  document.getElementById("logsContainer").innerHTML = `<table class="obs-table"><thead><tr><th>Time</th><th>Request</th><th>Status</th><th>Wall time</th><th>CPU</th><th>Service</th><th></th></tr></thead><tbody>${invocations.map((invocation, index) => `<tr><td>${formatTime(invocation.timestamp)}</td><td class="mono">${escapeHtml(invocation.requestLine)}</td><td>${invocation.statusCode == null ? "—" : `<span class="badge badge-${badgeClass(`${Math.floor(invocation.statusCode / 100)}xx`)}">${escapeHtml(invocation.statusCode)}</span>`}</td><td>${invocation.wallTimeMs == null ? "—" : `${Number(invocation.wallTimeMs).toFixed(1)} ms`}</td><td>${invocation.cpuTimeMs == null ? "—" : `${Number(invocation.cpuTimeMs).toFixed(1)} ms`}</td><td>${escapeHtml(invocation.service)}</td><td><button class="btn btn-ghost" onclick="toggleDetail('invocation-${index}')">Details</button></td></tr><tr><td colspan="7"><pre id="invocation-${index}" class="log-detail">${escapeHtml(JSON.stringify({ requestId: invocation.requestId, service: invocation.service, request: invocation.requestLine, statusCode: invocation.statusCode, wallTimeMs: invocation.wallTimeMs, cpuTimeMs: invocation.cpuTimeMs, events: invocation.events }, null, 2))}</pre></td></tr>`).join("")}</tbody></table>`;
 }
 
 async function loadMetrics() {
@@ -187,16 +176,7 @@ async function loadMetrics() {
       ["Response bytes", doRows.length ? bytes(sum(doRows, "responseBodySize")) : "No data", "Durable Object invocation responses"]
     ])
   ];
-  const notices = [
-    !result.d1DatabaseConfigured && "D1 metrics are unavailable because the deployed D1 database ID is missing or still a placeholder.",
-    result.kvNamespaceConfigured === false && "KV metrics are unavailable because the deployed KV namespace ID is not configured.",
-    !d1Rows.length && result.d1DatabaseConfigured && "No D1 analytics group has arrived for this database and date range yet. Cloudflare reports D1 analytics as UTC-day aggregates, not live per-query events.",
-    !workerRows.length && "No Worker analytics groups were returned for this range.",
-    !kvRows.length && result.kvNamespaceConfigured !== false && "No KV analytics groups were returned for this range.",
-    !doRows.length && "No Durable Object analytics groups were returned for this range."
-  ].filter(Boolean);
-  const coverage = result.dateCoverage || "Cloudflare analytics can be delayed; daily datasets may include the whole UTC day even for a shorter selected range.";
-  container.innerHTML = `${sections.join("")}<div class="card metrics-note">${escapeHtml(coverage)}${notices.length ? `<ul>${notices.map(notice => `<li>${escapeHtml(notice)}</li>`).join("")}</ul>` : ""} All displayed totals are filtered to the configured CloudCart Worker, D1 database, or KV namespace; this view makes no D1 or KV binding calls.</div>`;
+  container.innerHTML = sections.join("");
   document.getElementById("lastUpdated").textContent = `Updated ${new Date().toLocaleTimeString()}`;
 }
 
