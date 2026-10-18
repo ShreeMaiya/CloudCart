@@ -103,27 +103,42 @@ async function loadLogs() {
   const data = await fetchApi(`${API}/logs?${query}`);
   if (data?.error) return showError("logsContainer", data.error);
   const result = data?.data || {};
-  const events = result?.events?.events || [];
+  const invocationMap = result?.invocations || {};
+  const invocations = Object.entries(invocationMap).map(([id, rawEvents]) => {
+    const events = Array.isArray(rawEvents) ? rawEvents : [rawEvents];
+    const root = events.find(event => event?.$metadata?.type === "cf-worker-event" || event?.$workers?.eventType === "fetch") || events[0] || {};
+    const metadata = root.$metadata || {};
+    const workers = root.$workers || {};
+    const source = parseSource(root.source);
+    const redactQuery = value => String(value ?? "").replace(/(https?:\/\/[^\s?]+)\?[^\s]*/g, "$1").replace(/\?[^\s]*/g, "");
+    const trigger = metadata.trigger || root.trigger || source.trigger || "";
+    const url = metadata.url || root.url || source.url || workers.event?.request?.url || "";
+    const requestLine = redactQuery(trigger || `${workers.event?.request?.method || source.method || "INVOCATION"} ${url}`.trim());
+    const statusCode = metadata.statusCode ?? root.statusCode ?? source.statusCode ?? null;
+    return {
+      id, events, root,
+      timestamp: root.timestamp || metadata.timestamp || source.timestamp,
+      service: metadata.service || workers.scriptName || workers.entrypoint || source.service || "worker",
+      requestLine: requestLine || "Worker invocation",
+      statusCode,
+      wallTimeMs: workers.wallTimeMs ?? metadata.duration ?? source.wallTimeMs ?? null,
+      cpuTimeMs: workers.cpuTimeMs ?? source.cpuTimeMs ?? null,
+      requestId: metadata.requestId || workers.requestId || id,
+      traceId: metadata.traceId || workers.traceId || null,
+      level: String(metadata.level || source.level || (statusCode >= 500 ? "ERROR" : statusCode >= 400 ? "WARN" : "INFO")).toUpperCase(),
+      searchText: JSON.stringify(events).toLowerCase()
+    };
+  }).sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime());
   const level = document.getElementById("logLevel").value;
   const service = document.getElementById("logService").value;
   const search = document.getElementById("logSearch").value.trim().toLowerCase();
-  const filtered = events.filter(event => {
-    const source = parseSource(event.source);
-    const eventLevel = String(source.level || source.severity || event?.$metadata?.level || "INFO").toUpperCase();
-    const eventService = source.service || event?.$workers?.entrypoint || event?.$metadata?.service || event?.$workers?.scriptName || "worker";
-    const haystack = JSON.stringify(event).toLowerCase();
-    const normalizedService = String(eventService).toLowerCase().replace(/[^a-z0-9]/g, "");
-    return (level === "all" || eventLevel === level) && (service === "all" || normalizedService.includes(service.replace(/[^a-z0-9]/g, ""))) && (!search || haystack.includes(search));
+  const filtered = invocations.filter(invocation => {
+    const normalizedService = String(invocation.service).toLowerCase().replace(/[^a-z0-9]/g, "");
+    return (level === "all" || invocation.level === level) && (service === "all" || normalizedService.includes(service.replace(/[^a-z0-9]/g, ""))) && (!search || invocation.searchText.includes(search));
   });
-  document.getElementById("logCountPills").innerHTML = `<span class="log-count-pill">${filtered.length} returned events · Cloudflare sampling may apply</span>`;
-  if (!filtered.length) return setEmpty("logsContainer", result.error || "No recent log events returned. Check Workers Logs configuration, range, and sampling.");
-  document.getElementById("logsContainer").innerHTML = filtered.map((event, index) => {
-    const source = parseSource(event.source);
-    const eventLevel = String(source.level || source.severity || event?.$metadata?.level || "INFO").toUpperCase();
-    const eventService = source.service || event?.$workers?.entrypoint || event?.$metadata?.service || event?.$workers?.scriptName || "worker";
-    const message = source.message || source.msg || event?.$metadata?.message || JSON.stringify(source);
-    return `<div class="log-entry"><div class="log-row"><span class="log-time">${formatTime(event.timestamp || event?.$metadata?.timestamp)}</span><span class="badge badge-${badgeClass(eventLevel)}">${escapeHtml(eventLevel)}</span><span class="log-service">${escapeHtml(eventService)}</span><span class="log-msg">${escapeHtml(message)}</span><button class="btn btn-ghost" onclick="toggleDetail('log-${index}')">Details</button></div><pre id="log-${index}" class="log-detail">${escapeHtml(JSON.stringify(event, null, 2))}</pre></div>`;
-  }).join("");
+  document.getElementById("logCountPills").innerHTML = `<span class="log-count-pill">${filtered.length} invocations returned · maximum 100 · logs configured at 100% sampling</span>`;
+  if (!filtered.length) return setEmpty("logsContainer", "No recent Worker invocations returned for this range and filter.");
+  document.getElementById("logsContainer").innerHTML = `<table class="obs-table"><thead><tr><th>Time</th><th>Request</th><th>Status</th><th>Wall time</th><th>CPU</th><th>Service</th><th>Trace</th><th></th></tr></thead><tbody>${filtered.map((invocation, index) => `<tr><td>${formatTime(invocation.timestamp)}</td><td class="mono">${escapeHtml(invocation.requestLine)}</td><td>${invocation.statusCode == null ? "—" : `<span class="badge badge-${badgeClass(`${Math.floor(invocation.statusCode / 100)}xx`)}">${escapeHtml(invocation.statusCode)}</span>`}</td><td>${invocation.wallTimeMs == null ? "—" : `${Number(invocation.wallTimeMs).toFixed(1)} ms`}</td><td>${invocation.cpuTimeMs == null ? "—" : `${Number(invocation.cpuTimeMs).toFixed(1)} ms`}</td><td>${escapeHtml(invocation.service)}</td><td>${invocation.traceId ? `<button class="btn btn-ghost" onclick="openRelatedTrace('${escapeHtml(invocation.traceId)}')">View trace</button>` : "—"}</td><td><button class="btn btn-ghost" onclick="toggleDetail('invocation-${index}')">Details (${invocation.events.length})</button></td></tr><tr><td colspan="8"><pre id="invocation-${index}" class="log-detail">${escapeHtml(JSON.stringify({ requestId: invocation.requestId, traceId: invocation.traceId, events: invocation.events }, null, 2))}</pre></td></tr>`).join("")}</tbody></table>`;
 }
 
 async function loadMetrics() {
@@ -139,6 +154,10 @@ async function loadMetrics() {
   const d1Rows = groups.d1AnalyticsAdaptiveGroups || [];
   const doRows = groups.durableObjectsInvocationsAdaptiveGroups || [];
   const total = (rows, field) => rows.reduce((sum, row) => sum + (Number(row?.sum?.[field]) || 0), 0);
+  // Empty analytics results mean unavailable data, not confirmed zero usage.
+  const noRows = rows => rows.length === 0;
+  const noData = "No data";
+  const explainRows = (rows, detail) => noRows(rows) ? "No analytics groups returned for this range" : detail;
   const worker = {
     requests: total(workerRows, "requests"), errors: total(workerRows, "errors"), subrequests: total(workerRows, "subrequests"),
     cpuP50Ms: workerRows.find(row => row?.quantiles?.cpuTimeP50 != null)?.quantiles?.cpuTimeP50 ?? null,
@@ -146,13 +165,14 @@ async function loadMetrics() {
   };
   const d1 = { readQueries: total(d1Rows, "readQueries"), writeQueries: total(d1Rows, "writeQueries"), rowsRead: total(d1Rows, "rowsRead"), rowsWritten: total(d1Rows, "rowsWritten") };
   const durableObjects = { requests: total(doRows, "requests") };
+  const missingSources = [noRows(workerRows) && "Worker", noRows(doRows) && "Durable Objects", noRows(d1Rows) && "D1"].filter(Boolean);
   document.getElementById("metricsRequestTable").innerHTML = `<div class="grid-3">
-    ${metricCard("Worker requests", worker.requests, `${worker.errors} errors · ${worker.subrequests} subrequests`)}
-    ${metricCard("Worker CPU", worker.cpuP50Ms == null ? "—" : `${worker.cpuP50Ms} ms`, `P99 ${worker.cpuP99Ms == null ? "—" : `${worker.cpuP99Ms} ms`}`)}
-    ${metricCard("Durable Object requests", durableObjects.requests, "Cloudflare account analytics")}
-    ${metricCard("D1 queries", d1.readQueries + d1.writeQueries, `${d1.readQueries} reads · ${d1.writeQueries} writes`)}
-    ${metricCard("D1 rows read", d1.rowsRead, `${d1.rowsWritten} rows written`)}
-  </div><div class="card-sub metrics-note">Cloudflare account analytics. D1 and Durable Object totals are grouped by UTC date, so a sub-day range can include a full UTC day. Worker request totals include requests made by this observability dashboard. Sampled telemetry counts may be estimates. This panel makes no D1 or KV calls.</div>`;
+    ${metricCard("Worker requests", noRows(workerRows) ? noData : worker.requests, explainRows(workerRows, `${worker.errors} errors · ${worker.subrequests} subrequests`))}
+    ${metricCard("Worker CPU", noRows(workerRows) || worker.cpuP50Ms == null ? "—" : `${worker.cpuP50Ms} ms`, noRows(workerRows) ? explainRows(workerRows) : `P99 ${worker.cpuP99Ms == null ? "—" : `${worker.cpuP99Ms} ms`}`)}
+    ${metricCard("Durable Object requests", noRows(doRows) ? noData : durableObjects.requests, explainRows(doRows, "Cloudflare account analytics"))}
+    ${metricCard("D1 queries", noRows(d1Rows) ? noData : d1.readQueries + d1.writeQueries, explainRows(d1Rows, `${d1.readQueries} reads · ${d1.writeQueries} writes`))}
+    ${metricCard("D1 rows read", noRows(d1Rows) ? noData : d1.rowsRead, explainRows(d1Rows, `${d1.rowsWritten} rows written`))}
+  </div>${missingSources.length ? `<div class="card-sub metrics-note">Cloudflare returned no analytics groups for: ${escapeHtml(missingSources.join(", "))}. This is unavailable data, not a confirmed zero; analytics can be delayed or the configured account/resource identifiers may not match.</div>` : ""}<div class="card-sub metrics-note">Cloudflare account analytics. D1 and Durable Object totals are grouped by UTC date, so a sub-day selection can include a full UTC day. Worker request totals include requests made by this observability dashboard. Sampled telemetry counts may be estimates. This panel makes no D1 or KV calls.</div>`;
   }
 }
 
@@ -160,10 +180,12 @@ function metricCard(label, value, detail) {
   return `<div class="card"><div class="card-label">${escapeHtml(label)}</div><div class="card-value">${escapeHtml(value)}</div><div class="card-sub">${escapeHtml(detail)}</div></div>`;
 }
 
-async function loadTraces() {
+async function loadTraces(focusTraceId = null) {
   const data = await fetchApi(`${API}/traces?range=${encodeURIComponent(range())}&limit=80`);
   if (data?.error) return showError("tracesContainer", data.error);
-  const traces = data?.data?.traces || [];
+  const allTraces = data?.data?.traces || [];
+  const traces = focusTraceId ? allTraces.filter(trace => trace.traceId === focusTraceId) : allTraces;
+  if (focusTraceId && !traces.length) return setEmpty("tracesContainer", "No matching sampled trace was returned for this request. Traces are sampled, so this request may have no trace record.");
   if (!traces.length) return setEmpty("tracesContainer", "No recent traces were returned. Confirm tracing is enabled and check the sampling rate.");
   document.getElementById("tracesContainer").innerHTML = `<table class="obs-table trace-row"><thead><tr><th>Trace ID</th><th>Transaction</th><th>Services</th><th>Duration</th><th>Spans</th><th>Started</th><th></th></tr></thead><tbody>${traces.map((trace, index) => `<tr><td class="mono">${escapeHtml(trace.traceId || "—")}</td><td>${escapeHtml(trace.rootTransactionName || trace.rootSpanName || "—")}</td><td>${escapeHtml((trace.service || []).join(", "))}</td><td>${trace.traceDurationMs == null ? "—" : `${Number(trace.traceDurationMs).toFixed(1)} ms`}</td><td>${trace.spans ?? "—"}</td><td>${formatTime(trace.traceStartMs)}</td><td><button class="btn btn-ghost" onclick="toggleDetail('trace-${index}')">Details</button></td></tr><tr><td colspan="7"><pre class="log-detail" id="trace-${index}">${escapeHtml(JSON.stringify(trace, null, 2))}</pre></td></tr>`).join("")}</tbody></table>`;
 }
@@ -181,3 +203,9 @@ function showError(id, message) { setEmpty(id, message); }
 window.toggleDetail = id => { const element = document.getElementById(id); if (element) element.classList.toggle("visible"); };
 window.loadLogs = loadLogs;
 window.loadTraces = loadTraces;
+window.openRelatedTrace = traceId => {
+  document.querySelectorAll(".tab-btn").forEach(button => button.classList.toggle("active", button.dataset.tab === "traces"));
+  document.querySelectorAll(".tab-view").forEach(view => view.classList.toggle("active", view.id === "view-traces"));
+  currentTab = "traces";
+  loadTraces(traceId);
+};

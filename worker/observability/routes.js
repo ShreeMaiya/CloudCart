@@ -52,7 +52,7 @@ async function cloudflareQuery(env, { view, range, limit, parameters = {} }) {
   if (!env.CF_ACCOUNT_ID || !env.CF_OBSERVABILITY_API_TOKEN) {
     return { configured: false, error: "Set CF_ACCOUNT_ID and CF_OBSERVABILITY_API_TOKEN Worker secrets to enable Cloudflare telemetry." };
   }
-  const safeLimit = Math.max(1, Math.min(Number(limit) || 100, 200));
+  const safeLimit = Math.max(1, Math.min(Number(limit) || 100, 100));
   const key = JSON.stringify({ view, range, safeLimit, parameters });
   const hit = cached(key);
   if (hit) return hit;
@@ -223,7 +223,9 @@ export async function handleObservabilityRoute(request, env, _ctx, path, url) {
   }
 
   if (path === "/api/observability/logs" && request.method === "GET") {
-    const result = await cloudflareQuery(env, { view: "events", range: url.searchParams.get("range"), limit: url.searchParams.get("limit"), parameters: { datasets: ["cloudflare-workers"] } });
+    // Group log lines by Worker invocation so the dashboard can present one
+    // request row with its related events and trace correlation metadata.
+    const result = await cloudflareQuery(env, { view: "invocations", range: url.searchParams.get("range"), limit: url.searchParams.get("limit"), parameters: { datasets: ["cloudflare-workers"] } });
     if (telemetryFailure(result)) return response({ success: false, error: result.error, configured: result.configured }, result.configured ? 502 : 503, request, env);
     return response({ success: true, data: result }, 200, request, env);
   }
