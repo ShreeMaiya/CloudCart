@@ -19,7 +19,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const interval = Number(event.target.value);
     if (interval > 0) refreshTimer = setInterval(() => loadTab(currentTab), interval);
   });
-  loadTab(currentTab);
+  if (currentTab === "health") loadHealth(true);
+  else loadTab(currentTab);
 });
 
 function loadTab(tab) {
@@ -42,8 +43,11 @@ async function fetchApi(path, options = {}) {
   }
 }
 
-async function loadHealth(probe) {
-  const data = await fetchApi(`${API}/health${probe ? "?probe=1" : ""}`);
+async function loadHealth(probe, force = false) {
+  const query = new URLSearchParams();
+  if (probe) query.set("probe", "1");
+  if (force) query.set("force", "1");
+  const data = await fetchApi(`${API}/health${query.size ? `?${query}` : ""}`);
   if (data?.error) return showError("serviceCards", data.error);
   renderHealth(data);
 }
@@ -52,7 +56,7 @@ async function runHealthCheck() {
   const button = document.getElementById("probeBtn");
   button.disabled = true;
   button.textContent = "Checking…";
-  const data = await fetchApi(`${API}/health?probe=1`);
+  const data = await fetchApi(`${API}/health?probe=1&force=1`);
   button.disabled = false;
   button.textContent = "Run health check";
   if (data?.error) return showError("serviceCards", data.error);

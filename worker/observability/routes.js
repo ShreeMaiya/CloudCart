@@ -4,8 +4,11 @@
 const QUERY_CACHE_MS = 15_000;
 const ACCOUNT_METRICS_CACHE_MS = 60_000;
 const QUERY_TIMEOUT_MS = 8_000;
+const HEALTH_PROBE_CACHE_MS = 60 * 60 * 1000;
+const HEALTH_PROBE_CACHE_TTL_SECONDS = 60 * 60;
 const queryCache = new Map();
 const probeCache = { at: 0, services: null };
+let probeInFlight = null;
 
 const RANGES = { "15m": 15, "1h": 60, "6h": 360, "24h": 1440, "7d": 10080 };
 
@@ -156,19 +159,54 @@ function healthSnapshot(env, request) {
     { id: "inventory_do", name: "Inventory Durable Object", tier: "Durable Object", status: "UNKNOWN", signal: "Not actively probed", detail: "Use Run health check to invoke the InventoryDO health endpoint." },
     { id: "cloudflare_telemetry", name: "Cloudflare Observability API", tier: "Telemetry", status: configured ? "UNKNOWN" : "NOT_CONFIGURED", signal: configured ? "Not queried yet" : "Missing secrets", detail: configured ? "Native logs are queried on demand." : "Configure CF_ACCOUNT_ID and CF_OBSERVABILITY_API_TOKEN." }
   ];
-  if (probeCache.services && Date.now() - probeCache.at < 30_000) {
+  if (probeCache.services && Date.now() - probeCache.at < HEALTH_PROBE_CACHE_MS) {
     for (const probed of probeCache.services) {
       const index = services.findIndex(service => service.id === probed.id);
-      if (index >= 0) services[index] = { ...probed, cached: true, signal: "Recent active probe", checkedAt: new Date(probeCache.at).toISOString() };
+      if (index >= 0) services[index] = { ...probed, cached: true, signal: "Cached active probe", checkedAt: new Date(probeCache.at).toISOString() };
     }
   }
   return services;
 }
 
-async function probeDependencies(env) {
-  if (probeCache.services && Date.now() - probeCache.at < 30_000) {
+function healthProbeCacheKey(request) {
+  const url = new URL(request.url);
+  return new Request(`${url.origin}/__cloudcart_internal/observability-health-probe`);
+}
+
+async function readHealthProbeCache(request) {
+  try {
+    if (typeof caches === "undefined" || !caches.default) return null;
+    const cachedResponse = await caches.default.match(healthProbeCacheKey(request));
+    if (!cachedResponse) return null;
+    const cached = await cachedResponse.json();
+    const checkedAt = Date.parse(cached?.checkedAt || "");
+    if (!Array.isArray(cached?.services) || !Number.isFinite(checkedAt) || Date.now() - checkedAt >= HEALTH_PROBE_CACHE_MS) return null;
+    probeCache.at = checkedAt;
+    probeCache.services = cached.services;
+    return cached.services.map(service => ({ ...service, cached: true, signal: "Cached active probe", checkedAt: new Date(checkedAt).toISOString() }));
+  } catch {
+    return null;
+  }
+}
+
+function writeHealthProbeCache(ctx, request, services) {
+  try {
+    if (typeof caches === "undefined" || !caches.default) return;
+    const checkedAt = new Date().toISOString();
+    const cachedResponse = new Response(JSON.stringify({ services, checkedAt }), {
+      headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": `public, max-age=${HEALTH_PROBE_CACHE_TTL_SECONDS}` }
+    });
+    const write = caches.default.put(healthProbeCacheKey(request), cachedResponse);
+    if (ctx?.waitUntil) ctx.waitUntil(write);
+    else write.catch(() => {});
+  } catch { /* Module memory cache remains available if Cache API is unavailable. */ }
+}
+
+async function probeDependencies(env, force = false) {
+  if (!force && probeCache.services && Date.now() - probeCache.at < HEALTH_PROBE_CACHE_MS) {
     return probeCache.services.map(s => ({ ...s, cached: true, checkedAt: new Date(probeCache.at).toISOString() }));
   }
+  if (probeInFlight) return probeInFlight;
   const checks = [
     (async () => {
       if (!env?.DB) return { id: "d1", name: "Cloudflare D1", tier: "Database", status: "NOT_CONFIGURED", detail: "DB binding is missing." };
@@ -196,10 +234,16 @@ async function probeDependencies(env) {
       } catch { return { id: "inventory_do", name: "Inventory Durable Object", tier: "Durable Object", status: "DOWN", latencyMs: Math.round(performance.now() - start), checkedAt: new Date().toISOString(), detail: "Durable Object health invocation failed." }; }
     })()
   ];
-  const results = await Promise.all(checks);
-  probeCache.at = Date.now();
-  probeCache.services = results;
-  return results;
+  const pending = Promise.all(checks);
+  probeInFlight = pending;
+  try {
+    const results = await pending;
+    probeCache.at = Date.now();
+    probeCache.services = results;
+    return results;
+  } finally {
+    if (probeInFlight === pending) probeInFlight = null;
+  }
 }
 
 // Aggregate raw Cloudflare GraphQL group arrays into a single summary object.
@@ -282,17 +326,25 @@ function aggregateMetrics(groups) {
   return { worker, d1, kv, durableObjects };
 }
 
-export async function handleObservabilityRoute(request, env, _ctx, path, url) {
+export async function handleObservabilityRoute(request, env, ctx, path, url) {
   if (!path.startsWith("/api/observability")) return null;
   if (request.method === "OPTIONS") return response(null, 204, request, env);
 
   if (path === "/api/observability/health" && request.method === "GET") {
     const shouldProbe = url.searchParams.get("probe") === "1";
+    const forceProbe = url.searchParams.get("force") === "1";
     const snapshot = healthSnapshot(env, request);
-    // Await fresh probe results FIRST so the final services array is always up-to-date.
     let services = snapshot;
     if (shouldProbe) {
-      const activeResults = await probeDependencies(env);
+      let activeResults = null;
+      if (!forceProbe && probeCache.services && Date.now() - probeCache.at < HEALTH_PROBE_CACHE_MS) {
+        activeResults = probeCache.services.map(service => ({ ...service, cached: true, signal: "Cached active probe", checkedAt: new Date(probeCache.at).toISOString() }));
+      }
+      if (!activeResults && !forceProbe) activeResults = await readHealthProbeCache(request);
+      if (!activeResults) {
+        activeResults = await probeDependencies(env, true);
+        writeHealthProbeCache(ctx, request, activeResults);
+      }
       services = snapshot.map(s => {
         const probed = activeResults.find(r => r.id === s.id);
         return probed ?? s;
@@ -331,7 +383,9 @@ export async function handleObservabilityRoute(request, env, _ctx, path, url) {
   }
 
   if (path === "/api/observability/probe" && request.method === "POST") {
-    return response({ success: true, data: { services: await probeDependencies(env), cachedForSeconds: 30 } }, 200, request, env);
+    const services = await probeDependencies(env, true);
+    writeHealthProbeCache(ctx, request, services);
+    return response({ success: true, data: { services, cachedForSeconds: HEALTH_PROBE_CACHE_TTL_SECONDS } }, 200, request, env);
   }
 
   return response({ success: false, error: "Observability route not found." }, 404, request, env);

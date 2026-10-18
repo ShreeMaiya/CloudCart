@@ -44,7 +44,7 @@
       <option value="60000">1 min</option>
     </select>
     <button class="btn btn-primary" id="refreshBtn">↻ Refresh</button>
-    <button class="btn btn-ghost" id="probeBtn" title="Runs one D1 query, one KV read and one Durable Object request">Run health check</button>
+    <button class="btn btn-ghost" id="probeBtn" title="Runs a fresh check: one D1 query, one KV read and one Durable Object request">Run health check</button>
     <span class="last-updated" id="lastUpdated">—</span>
   </div>
 
@@ -77,6 +77,7 @@
     <div class="service-cards" id="serviceCards">
       <div class="card empty-state">⟳ Loading services…</div>
     </div>
+    <div class="card metrics-note">Opening this page reuses the latest health probe for up to 1 hour. “Run health check” forces a fresh probe: one D1 query, one KV read, and one Durable Object request.</div>
 
   </section>
 
