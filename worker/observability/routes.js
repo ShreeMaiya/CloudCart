@@ -118,7 +118,7 @@ async function cloudflareProjectMetrics(env, range) {
   const hit = cached(cacheKey, ACCOUNT_METRICS_CACHE_MS);
   if (hit) return hit;
   const kvFields = variables.kvNamespaceId ? `kvOperationsAdaptiveGroups(limit: 1000, filter: { date_geq: $historyStart, date_leq: $historyEnd, namespaceId: $kvNamespaceId }) { sum { requests } quantiles { latencyMsP50 latencyMsP90 latencyMsP99 } dimensions { date actionType } } kvStorageAdaptiveGroups(limit: 100, filter: { date_geq: $historyStart, date_leq: $historyEnd, namespaceId: $kvNamespaceId }) { max { keyCount byteCount } dimensions { date } }` : "";
-  const query = `query CloudCartOperationalMetrics($accountTag: string!, $datetimeStart: string, $datetimeEnd: string, $dateStart: Date, $dateEnd: Date, $historyStart: Date, $historyEnd: Date, $scriptName: string, $databaseId: string, $kvNamespaceId: string) { viewer { accounts(filter: { accountTag: $accountTag }) { workersInvocationsAdaptive(limit: 1000, filter: { scriptName: $scriptName, datetime_geq: $datetimeStart, datetime_leq: $datetimeEnd }) { sum { requests errors subrequests } quantiles { cpuTimeP50 cpuTimeP99 wallTimeP50 wallTimeP99 } dimensions { datetime } } d1AnalyticsAdaptiveGroups(limit: 1000, filter: { date_geq: $historyStart, date_leq: $historyEnd, databaseId: $databaseId }) { sum { readQueries writeQueries rowsRead rowsWritten queryBatchResponseBytes } quantiles { queryBatchTimeMsP90 } dimensions { date } } d1StorageAdaptiveGroups(limit: 100, filter: { date_geq: $historyStart, date_leq: $historyEnd, databaseId: $databaseId }) { max { databaseSizeBytes } dimensions { date } } ${kvFields} durableObjectsInvocationsAdaptiveGroups(limit: 1000, filter: { date_geq: $dateStart, date_leq: $dateEnd, scriptName: $scriptName }) { sum { requests responseBodySize } dimensions { date } } } } }`;
+  const query = `query CloudCartOperationalMetrics($accountTag: string!, $datetimeStart: string, $datetimeEnd: string, $dateStart: Date, $dateEnd: Date, $historyStart: Date, $historyEnd: Date, $scriptName: string, $databaseId: string, $kvNamespaceId: string) { viewer { accounts(filter: { accountTag: $accountTag }) { workersInvocationsAdaptive(limit: 1000, filter: { scriptName: $scriptName, datetime_geq: $datetimeStart, datetime_leq: $datetimeEnd }) { sum { requests errors subrequests } quantiles { cpuTimeP50 cpuTimeP99 } dimensions { datetime } } d1AnalyticsAdaptiveGroups(limit: 1000, filter: { date_geq: $historyStart, date_leq: $historyEnd, databaseId: $databaseId }) { sum { readQueries writeQueries rowsRead rowsWritten queryBatchResponseBytes } quantiles { queryBatchTimeMsP90 } dimensions { date } } d1StorageAdaptiveGroups(limit: 100, filter: { date_geq: $historyStart, date_leq: $historyEnd, databaseId: $databaseId }) { max { databaseSizeBytes } dimensions { date } } ${kvFields} durableObjectsInvocationsAdaptiveGroups(limit: 1000, filter: { date_geq: $dateStart, date_leq: $dateEnd, scriptName: $scriptName }) { sum { requests responseBodySize } dimensions { date } } } } }`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS);
   try {
@@ -284,9 +284,7 @@ function aggregateMetrics(groups) {
       errors: sumField(workerRows, "errors"),
       subrequests: sumField(workerRows, "subrequests"),
       cpuTimeP50Ms: workerLatest?.quantiles?.cpuTimeP50 ?? null,
-      cpuTimeP99Ms: workerLatest?.quantiles?.cpuTimeP99 ?? null,
-      wallTimeP50Ms: workerLatest?.quantiles?.wallTimeP50 ?? null,
-      wallTimeP99Ms: workerLatest?.quantiles?.wallTimeP99 ?? null
+      cpuTimeP99Ms: workerLatest?.quantiles?.cpuTimeP99 ?? null
     }
     : null;
 

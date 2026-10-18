@@ -118,23 +118,21 @@ async function loadLogs() {
     const trigger = metadata.trigger || root.trigger || source.trigger || "";
     const url = metadata.url || root.url || source.url || workers.event?.request?.url || "";
     const requestLine = redactQuery(trigger || `${workers.event?.request?.method || source.method || "INVOCATION"} ${url}`.trim());
-    const statusCode = metadata.statusCode ?? root.statusCode ?? cloudflare.statusCode ?? source.statusCode ?? null;
     return {
       id, events, root,
       timestamp: root.timestamp || metadata.timestamp || source.timestamp,
       service: metadata.service || workers.scriptName || workers.entrypoint || source.service || "worker",
       requestLine: requestLine || "Worker invocation",
-      statusCode,
       wallTimeMs: workers.wallTimeMs ?? metadata.duration ?? source.wallTimeMs ?? null,
       cpuTimeMs: workers.cpuTimeMs ?? source.cpuTimeMs ?? null,
       requestId: metadata.requestId || workers.requestId || id,
-      level: String(metadata.level || source.level || (statusCode >= 500 ? "ERROR" : statusCode >= 400 ? "WARN" : "INFO")).toUpperCase(),
+      level: String(metadata.level || source.level || "INFO").toUpperCase(),
       searchText: JSON.stringify(events).toLowerCase()
     };
   });
   invocations.sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime());
   if (!invocations.length) return setEmpty("logsContainer", "No recent Worker invocations returned for this range.");
-  document.getElementById("logsContainer").innerHTML = `<table class="obs-table"><thead><tr><th>Time</th><th>Request</th><th>Status</th><th>Wall time</th><th>CPU</th><th></th></tr></thead><tbody>${invocations.map((invocation, index) => `<tr><td>${formatTime(invocation.timestamp)}</td><td class="mono">${escapeHtml(invocation.requestLine)}</td><td>${invocation.statusCode == null ? '<span title="Cloudflare did not include an HTTP status code for this event">Not reported</span>' : `<span class="badge badge-${badgeClass(`${Math.floor(invocation.statusCode / 100)}xx`)}">${escapeHtml(invocation.statusCode)}</span>`}</td><td>${formatDuration(invocation.wallTimeMs)}</td><td>${formatDuration(invocation.cpuTimeMs)}</td><td><button class="btn btn-ghost" onclick="toggleDetail('invocation-${index}')">Details</button></td></tr><tr><td colspan="6"><pre id="invocation-${index}" class="log-detail">${escapeHtml(JSON.stringify({ requestId: invocation.requestId, service: invocation.service, request: invocation.requestLine, statusCode: invocation.statusCode, wallTimeMs: invocation.wallTimeMs, cpuTimeMs: invocation.cpuTimeMs, events: invocation.events }, null, 2))}</pre></td></tr>`).join("")}</tbody></table>`;
+  document.getElementById("logsContainer").innerHTML = `<table class="obs-table"><thead><tr><th>Time</th><th>Request</th><th>Wall time</th><th>CPU</th><th></th></tr></thead><tbody>${invocations.map((invocation, index) => `<tr><td>${formatTime(invocation.timestamp)}</td><td class="mono">${escapeHtml(invocation.requestLine)}</td><td>${formatDuration(invocation.wallTimeMs)}</td><td>${formatDuration(invocation.cpuTimeMs)}</td><td><button class="btn btn-ghost" onclick="toggleDetail('invocation-${index}')">Details</button></td></tr><tr><td colspan="5"><pre id="invocation-${index}" class="log-detail">${escapeHtml(JSON.stringify({ requestId: invocation.requestId, service: invocation.service, request: invocation.requestLine, wallTimeMs: invocation.wallTimeMs, cpuTimeMs: invocation.cpuTimeMs, events: invocation.events }, null, 2))}</pre></td></tr>`).join("")}</tbody></table>`;
 }
 
 async function loadMetrics() {
@@ -218,8 +216,6 @@ async function loadMetrics() {
       ["Subrequests", workerRows.length ? number(sum(workerRows, "subrequests")) : "No data", "Outbound fetch() requests made by this Worker"],
       ["CPU time P50", milliseconds(workerLatest?.quantiles?.cpuTimeP50), `${workerSample} · Worker CPU time per invocation`],
       ["CPU time P99", milliseconds(workerLatest?.quantiles?.cpuTimeP99), `${workerSample} · Worker CPU time per invocation`],
-      ["Wall time P50", milliseconds(workerLatest?.quantiles?.wallTimeP50), `${workerSample} · runtime elapsed time, not client response latency`],
-      ["Wall time P99", milliseconds(workerLatest?.quantiles?.wallTimeP99), `${workerSample} · runtime elapsed time, not client response latency`]
     ]),
     metricSection("CloudCart D1 database", [
       ["Read queries", d1Rows.length ? number(sum(d1Rows, "readQueries")) : "No data", `Selected UTC date(s) · ${result.selectedDateStart || "—"} to ${result.selectedDateEnd || "—"}`],
