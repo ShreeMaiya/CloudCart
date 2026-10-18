@@ -124,8 +124,9 @@ async function cloudflareProjectMetrics(env, range) {
     return saveCache(cacheKey, {
       configured: true,
       data: body?.data?.viewer?.accounts?.[0] || null,
+      d1DatabaseConfigured: Boolean(variables.databaseId && !/^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(variables.databaseId)),
       kvNamespaceConfigured: Boolean(variables.kvNamespaceId),
-      dateCoverage: `D1, KV, and Durable Object analytics are grouped by UTC date (${variables.dateStart} through ${variables.dateEnd}); sub-day selections include the full UTC date. Worker analytics use time buckets and can lag for recent minutes.`,
+      dateCoverage: `D1, KV, and Durable Object analytics are UTC-day aggregates (${variables.dateStart} through ${variables.dateEnd}); a short time-range selection still includes the full UTC day. Cloudflare may delay analytics updates.`,
       fetchedAt: new Date().toISOString()
     });
   } catch {
