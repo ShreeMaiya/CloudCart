@@ -256,6 +256,26 @@ export async function handleObservabilityRoute(request, env, _ctx, path, url) {
     return response({ success: true, data: result }, 200, request, env);
   }
 
+  if (path === "/api/observability/trace-spans" && request.method === "GET") {
+    const traceId = url.searchParams.get("traceId") || "";
+    if (!/^[a-f0-9]{16,64}$/i.test(traceId)) return response({ success: false, error: "A valid trace ID is required." }, 400, request, env);
+    const result = await cloudflareQuery(env, {
+      view: "events", range: url.searchParams.get("range"), limit: 100,
+      parameters: {
+        datasets: ["cloudflare-workers"],
+        filters: [{ key: "$metadata.traceId", operation: "eq", type: "string", value: traceId }]
+      }
+    });
+    if (telemetryFailure(result)) return response({ success: false, error: result.error, configured: result.configured }, result.configured ? 502 : 503, request, env);
+    const events = result?.data?.events?.events || [];
+    const spans = events.filter(event => {
+      const metadata = event?.$metadata || {};
+      const workers = event?.$workers || {};
+      return Boolean(metadata.spanId || workers.spanId || event?.spanId);
+    });
+    return response({ success: true, data: { traceId, spans, returnedEvents: events.length, fetchedAt: result.fetchedAt } }, 200, request, env);
+  }
+
   if (path === "/api/observability/probe" && request.method === "POST") {
     return response({ success: true, data: { services: await probeDependencies(env), cachedForSeconds: 30 } }, 200, request, env);
   }

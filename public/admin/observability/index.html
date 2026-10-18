@@ -121,13 +121,7 @@
     <div class="log-filters">
       <span class="text-muted">Cloudflare-native sampled traces · use Refresh to reload</span>
     </div>
-    <div class="card"><div class="card-sub">Duration is elapsed wall time, not CPU time. Long durations can reflect an open WebSocket connection.</div></div>
-
-    <div class="waterfall-wrap" id="waterfallPanel" style="display:none;">
-      <div class="waterfall-title" id="waterfallTitle">Trace Waterfall</div>
-      <div id="waterfallContent"></div>
-      <button class="btn btn-ghost" style="margin-top:0.75rem;font-size:0.75rem;" onclick="closeWaterfall()">✕ Close waterfall</button>
-    </div>
+    <div class="card"><div class="card-sub">Open a trace to view its sampled service spans in time order. Bars show recorded elapsed time; service-level timing appears only when Cloudflare includes it. Long durations can reflect an open WebSocket connection.</div></div>
 
     <div class="obs-table-wrap" id="tracesContainer">
       <div class="empty-state">⟳ Loading traces…</div>

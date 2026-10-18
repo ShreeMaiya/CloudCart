@@ -187,13 +187,17 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 
 /* ── Traces ── */
 .trace-row td { font-family: var(--mono); font-size: 0.78rem; }
+.trace-detail { padding: 0; }
 .waterfall-wrap { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.1rem; margin-bottom: 1.5rem; }
-.waterfall-title { font-size: 0.85rem; font-weight: 600; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem; }
-.span-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.3rem 0; font-size: 0.78rem; }
-.span-indent { flex-shrink: 0; color: var(--border2); }
-.span-name { min-width: 220px; color: var(--text-dim); font-family: var(--mono); }
-.span-name .service { color: var(--accent); }
-.span-track { flex: 1; position: relative; height: 18px; }
+.waterfall-title { font-size: 0.85rem; font-weight: 600; margin-bottom: 0.75rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.waterfall-title span, .waterfall-axis, .waterfall-footnote { color: var(--text-muted); font-size: 0.72rem; font-weight: 400; }
+.waterfall-axis { display: grid; grid-template-columns: minmax(180px, 28%) 1fr auto; align-items: center; gap: 0.75rem; border-bottom: 1px solid var(--border); padding-bottom: 0.45rem; }
+.waterfall-axis > div { display: flex; justify-content: space-between; }
+.span-row { display: grid; grid-template-columns: minmax(180px, 28%) 1fr 80px; align-items: center; gap: 0.75rem; padding: 0.42rem 0; font-size: 0.78rem; border-bottom: 1px solid var(--border); }
+.span-label { min-width: 0; display: flex; flex-direction: column; gap: 0.15rem; }
+.span-service { color: var(--accent); font-size: 0.68rem; }
+.span-name-text { color: var(--text-dim); font-family: var(--mono); overflow-wrap: anywhere; }
+.span-track { flex: 1; position: relative; height: 18px; background: rgba(148,163,184,0.08); border-radius: 3px; overflow: hidden; }
 .span-bar { position: absolute; top: 3px; height: 12px; border-radius: 3px; min-width: 2px; }
 .span-bar.worker     { background: rgba(99,102,241,0.7); }
 .span-bar.d1         { background: rgba(16,185,129,0.7); }
@@ -201,6 +205,9 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 .span-bar.inventory_do { background: rgba(59,130,246,0.7); }
 .span-bar.error      { background: rgba(239,68,68,0.7); }
 .span-dur { width: 52px; text-align: right; font-family: var(--mono); color: var(--text-muted); font-size: 0.72rem; }
+.span-unavailable { color: var(--text-muted); font-size: 0.7rem; }
+.waterfall-footnote { margin-top: 0.7rem; }
+@media (max-width: 700px) { .span-row, .waterfall-axis { grid-template-columns: minmax(110px, 35%) 1fr 64px; gap: 0.4rem; } .waterfall-axis > span:first-child { grid-column: 1 / -1; } }
 
 /* ── Empty / loading ── */
 .empty-state { padding: 3rem; text-align: center; color: var(--text-muted); }
