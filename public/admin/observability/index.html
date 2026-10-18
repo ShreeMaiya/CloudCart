@@ -50,12 +50,13 @@
 
   <!-- Tab Nav -->
   <nav class="tab-nav">
-    <button class="tab-btn active" data-tab="healthmetrics"><span class="tab-icon">🛡️</span> Health &amp; Metrics</button>
+    <button class="tab-btn active" data-tab="health"><span class="tab-icon">🛡️</span> Health</button>
     <button class="tab-btn" data-tab="logs"><span class="tab-icon">📜</span> Logs</button>
+    <button class="tab-btn" data-tab="metrics"><span class="tab-icon">📈</span> Metrics</button>
   </nav>
 
   <!-- ── HEALTH ── -->
-  <section class="tab-view active" id="view-healthmetrics">
+  <section class="tab-view active" id="view-health">
     <div class="health-banner" id="healthBanner">
       <div class="health-left">
         <div class="health-orb healthy" id="healthOrb">✓</div>
@@ -68,6 +69,7 @@
         <div class="health-pill"><div class="health-pill-num text-success" id="hHealthy">—</div><div class="health-pill-label">Healthy</div></div>
         <div class="health-pill"><div class="health-pill-num text-warn" id="hDegraded">—</div><div class="health-pill-label">Degraded</div></div>
         <div class="health-pill"><div class="health-pill-num text-error" id="hFailed">—</div><div class="health-pill-label">Failed</div></div>
+        <div class="health-pill"><div class="health-pill-num" id="hUnknown">—</div><div class="health-pill-label">Not checked</div></div>
         <div class="health-pill"><div class="health-pill-num" id="hTotal">—</div><div class="health-pill-label">Services</div></div>
       </div>
     </div>
@@ -77,13 +79,6 @@
       <div class="card empty-state">⟳ Loading services…</div>
     </div>
 
-    <p class="section-title">Health check cost</p>
-    <div class="card"><div class="card-sub">Unverified services are hidden from this view. Passive refreshes make no dependency calls. “Run health check” checks D1, KV, and the Inventory Durable Object with one request each; results are reused for 30 seconds.</div></div>
-
-    <p class="section-title">HTTP Request Performance</p>
-    <div class="obs-table-wrap" id="metricsRequestTable">
-      <div class="empty-state">⟳ Loading metrics…</div>
-    </div>
   </section>
 
   <!-- ── REQUEST ACTIVITY ── -->
@@ -108,6 +103,15 @@
     <div class="log-count-pills" id="logCountPills"></div>
     <div class="obs-table-wrap" id="logsContainer">
       <div class="empty-state">⟳ Loading logs…</div>
+    </div>
+  </section>
+
+  <!-- ── METRICS ── -->
+  <section class="tab-view" id="view-metrics">
+    <p class="section-title">HTTP Request Performance</p>
+    <div class="log-filters"><span class="text-muted">Cloudflare account analytics; values are aggregated and may arrive with delay. Refresh re-queries Cloudflare; results are briefly cached.</span></div>
+    <div class="obs-table-wrap" id="metricsRequestTable">
+      <div class="empty-state">⟳ Select Metrics to load…</div>
     </div>
   </section>
 

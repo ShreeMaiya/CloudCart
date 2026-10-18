@@ -1,7 +1,7 @@
 // Live Cloudflare-native observability dashboard. Telemetry is queried on demand;
 // nothing is written to this project's D1 or KV for observability.
 const API = "/api/observability";
-let currentTab = "healthmetrics";
+let currentTab = "health";
 let refreshTimer = null;
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -26,8 +26,9 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 function loadTab(tab) {
-  if (tab === "healthmetrics") return Promise.all([loadHealth(false), loadMetrics()]);
+  if (tab === "health") return loadHealth(false);
   if (tab === "logs") return loadLogs();
+  if (tab === "metrics") return loadMetrics();
 }
 
 function range() { return document.getElementById("rangeSelect").value; }
@@ -62,22 +63,21 @@ async function runHealthCheck() {
 }
 
 function renderHealth(data) {
-  // Show only services with a current health signal; unverified services are
-  // omitted instead of making the overall system appear unknown.
-  const services = (data?.services || []).filter(item => ["HEALTHY", "DEGRADED", "DOWN"].includes(item.status));
-  const known = services;
-  const healthy = known.filter(item => item.status === "HEALTHY").length;
-  const degraded = known.filter(item => item.status === "DEGRADED").length;
-  const down = known.filter(item => item.status === "DOWN").length;
-  const status = down ? "DOWN" : degraded ? "DEGRADED" : known.length ? "HEALTHY" : "UNKNOWN";
+  const services = data?.services || [];
+  const healthy = services.filter(item => item.status === "HEALTHY").length;
+  const degraded = services.filter(item => item.status === "DEGRADED").length;
+  const down = services.filter(item => item.status === "DOWN").length;
+  const unknown = services.filter(item => ["UNKNOWN", "NOT_CONFIGURED"].includes(item.status)).length;
+  const status = down ? "DOWN" : degraded ? "DEGRADED" : unknown ? "UNKNOWN" : healthy ? "HEALTHY" : "UNKNOWN";
   updateStatus(status);
   document.getElementById("healthSub").textContent = `${data?.probe ? "Active probes plus current Worker status" : "Verified status; no dependency calls"} · ${formatTime(data?.timestamp)}`;
   document.getElementById("hHealthy").textContent = healthy;
   document.getElementById("hDegraded").textContent = degraded;
   document.getElementById("hFailed").textContent = down;
+  document.getElementById("hUnknown").textContent = unknown;
   document.getElementById("hTotal").textContent = services.length;
   document.getElementById("serviceCards").innerHTML = services.map(service => {
-    const cssStatus = service.status === "NOT_CONFIGURED" ? "unknown" : service.status.toLowerCase();
+  const cssStatus = ["UNKNOWN", "NOT_CONFIGURED"].includes(service.status) ? "unknown" : service.status.toLowerCase();
     return `<article class="service-card ${cssStatus}">
       <div class="svc-header"><div><div class="svc-name">${escapeHtml(service.name)}</div><div class="svc-tier">${escapeHtml(service.tier)}</div></div><span class="badge badge-${badgeClass(service.status)}">${escapeHtml(service.status)}</span></div>
       <div class="svc-description">${escapeHtml(service.detail || "")}</div>
@@ -90,10 +90,11 @@ function renderHealth(data) {
 function updateStatus(status) {
   const dot = document.getElementById("healthDot");
   dot.className = `dot ${status.toLowerCase()}`;
-  document.getElementById("overallStatusText").textContent = `Verified services ${status.toLowerCase()}`;
+  const statusLabel = status === "HEALTHY" ? "All verified services healthy" : status === "DEGRADED" ? "Some services degraded" : status === "DOWN" ? "Service failure detected" : "Some services not checked";
+  document.getElementById("overallStatusText").textContent = statusLabel;
   document.getElementById("healthOrb").className = `health-orb ${status.toLowerCase()}`;
   document.getElementById("healthOrb").textContent = status === "HEALTHY" ? "✓" : status === "DEGRADED" ? "!" : status === "DOWN" ? "×" : "?";
-  document.getElementById("healthTitle").textContent = `Verified services ${status.toLowerCase()}`;
+  document.getElementById("healthTitle").textContent = statusLabel;
 }
 
 async function loadLogs() {
@@ -141,7 +142,7 @@ async function loadLogs() {
 async function loadMetrics() {
   const data = await fetchApi(`${API}/metrics?range=${encodeURIComponent(range())}`);
   if (data?.error) return showError("metricsRequestTable", data.error);
-  const result = data?.data || {};
+  const result = data || {};
   const account = result.accountMetrics || {};
   const groups = account.data || {};
   if (account.error) {
