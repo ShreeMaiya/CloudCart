@@ -102,17 +102,23 @@ async function loadLogs() {
   if (data?.error) return showError("logsContainer", data.error);
   const result = data?.data || {};
   const invocationMap = result?.invocations || {};
+  const formatDuration = value => {
+    if (value == null || !Number.isFinite(Number(value))) return "—";
+    const duration = Number(value);
+    return duration > 0 && duration < 0.05 ? "<0.1 ms" : `${duration.toFixed(1)} ms`;
+  };
   const invocations = Object.entries(invocationMap).map(([id, rawEvents]) => {
     const events = Array.isArray(rawEvents) ? rawEvents : [rawEvents];
-    const root = events.find(event => event?.$metadata?.type === "cf-worker-event" || event?.$workers?.eventType === "fetch") || events[0] || {};
-    const metadata = root.$metadata || {};
-    const workers = root.$workers || {};
-    const source = parseSource(root.source);
+    const root = events.find(event => event?.$metadata?.type === "cf-worker-event" || event?.$cloudflare?.$metadata?.type === "cf-worker-event" || event?.$workers?.eventType === "fetch") || events[0] || {};
+    const cloudflare = root.$cloudflare || {};
+    const metadata = root.$metadata || cloudflare.$metadata || {};
+    const workers = root.$workers || cloudflare.$workers || {};
+    const source = parseSource(root.source ?? cloudflare.source);
     const redactQuery = value => String(value ?? "").replace(/(https?:\/\/[^\s?]+)\?[^\s]*/g, "$1").replace(/\?[^\s]*/g, "");
     const trigger = metadata.trigger || root.trigger || source.trigger || "";
     const url = metadata.url || root.url || source.url || workers.event?.request?.url || "";
     const requestLine = redactQuery(trigger || `${workers.event?.request?.method || source.method || "INVOCATION"} ${url}`.trim());
-    const statusCode = metadata.statusCode ?? root.statusCode ?? source.statusCode ?? null;
+    const statusCode = metadata.statusCode ?? root.statusCode ?? cloudflare.statusCode ?? source.statusCode ?? null;
     return {
       id, events, root,
       timestamp: root.timestamp || metadata.timestamp || source.timestamp,
@@ -128,7 +134,7 @@ async function loadLogs() {
   });
   invocations.sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime());
   if (!invocations.length) return setEmpty("logsContainer", "No recent Worker invocations returned for this range.");
-  document.getElementById("logsContainer").innerHTML = `<table class="obs-table"><thead><tr><th>Time</th><th>Request</th><th>Status</th><th>Wall time</th><th>CPU</th><th>Service</th><th></th></tr></thead><tbody>${invocations.map((invocation, index) => `<tr><td>${formatTime(invocation.timestamp)}</td><td class="mono">${escapeHtml(invocation.requestLine)}</td><td>${invocation.statusCode == null ? "—" : `<span class="badge badge-${badgeClass(`${Math.floor(invocation.statusCode / 100)}xx`)}">${escapeHtml(invocation.statusCode)}</span>`}</td><td>${invocation.wallTimeMs == null ? "—" : `${Number(invocation.wallTimeMs).toFixed(1)} ms`}</td><td>${invocation.cpuTimeMs == null ? "—" : `${Number(invocation.cpuTimeMs).toFixed(1)} ms`}</td><td>${escapeHtml(invocation.service)}</td><td><button class="btn btn-ghost" onclick="toggleDetail('invocation-${index}')">Details</button></td></tr><tr><td colspan="7"><pre id="invocation-${index}" class="log-detail">${escapeHtml(JSON.stringify({ requestId: invocation.requestId, service: invocation.service, request: invocation.requestLine, statusCode: invocation.statusCode, wallTimeMs: invocation.wallTimeMs, cpuTimeMs: invocation.cpuTimeMs, events: invocation.events }, null, 2))}</pre></td></tr>`).join("")}</tbody></table>`;
+  document.getElementById("logsContainer").innerHTML = `<table class="obs-table"><thead><tr><th>Time</th><th>Request</th><th>Status</th><th>Wall time</th><th>CPU</th><th></th></tr></thead><tbody>${invocations.map((invocation, index) => `<tr><td>${formatTime(invocation.timestamp)}</td><td class="mono">${escapeHtml(invocation.requestLine)}</td><td>${invocation.statusCode == null ? '<span title="Cloudflare did not include an HTTP status code for this event">Not reported</span>' : `<span class="badge badge-${badgeClass(`${Math.floor(invocation.statusCode / 100)}xx`)}">${escapeHtml(invocation.statusCode)}</span>`}</td><td>${formatDuration(invocation.wallTimeMs)}</td><td>${formatDuration(invocation.cpuTimeMs)}</td><td><button class="btn btn-ghost" onclick="toggleDetail('invocation-${index}')">Details</button></td></tr><tr><td colspan="6"><pre id="invocation-${index}" class="log-detail">${escapeHtml(JSON.stringify({ requestId: invocation.requestId, service: invocation.service, request: invocation.requestLine, statusCode: invocation.statusCode, wallTimeMs: invocation.wallTimeMs, cpuTimeMs: invocation.cpuTimeMs, events: invocation.events }, null, 2))}</pre></td></tr>`).join("")}</tbody></table>`;
 }
 
 async function loadMetrics() {
@@ -140,13 +146,18 @@ async function loadMetrics() {
   const result = data?.projectMetrics || {};
   const groups = result.data || {};
   const workerRows = groups.workersInvocationsAdaptive || [];
-  const d1Rows = groups.d1AnalyticsAdaptiveGroups || [];
-  const d1StorageRows = groups.d1StorageAdaptiveGroups || [];
-  const kvRows = groups.kvOperationsAdaptiveGroups || [];
+  const d1HistoryRows = groups.d1AnalyticsAdaptiveGroups || [];
+  const d1StorageHistoryRows = groups.d1StorageAdaptiveGroups || [];
+  const kvHistoryRows = groups.kvOperationsAdaptiveGroups || [];
+  const kvStorageHistoryRows = groups.kvStorageAdaptiveGroups || [];
   const doRows = groups.durableObjectsInvocationsAdaptiveGroups || [];
   const sum = (rows, key) => rows.reduce((total, row) => total + (Number(row?.sum?.[key]) || 0), 0);
   const latest = rows => [...rows].sort((a, b) => String(b?.dimensions?.date || b?.dimensions?.datetime || "").localeCompare(String(a?.dimensions?.date || a?.dimensions?.datetime || "")))[0];
+  const selectedUtcDate = date => date >= (result.selectedDateStart || "0000-00-00") && date <= (result.selectedDateEnd || "9999-99-99");
+  const d1Rows = d1HistoryRows.filter(row => selectedUtcDate(String(row?.dimensions?.date || "")));
+  const kvRows = kvHistoryRows.filter(row => selectedUtcDate(String(row?.dimensions?.date || "")));
   const number = value => Number(value || 0).toLocaleString();
+  const numberOrDash = value => value == null ? "—" : number(value);
   const bytes = value => {
     if (value == null || !Number.isFinite(Number(value))) return "No data";
     const units = ["B", "KB", "MB", "GB", "TB"];
@@ -154,27 +165,80 @@ async function loadMetrics() {
     while (size >= 1024 && unit < units.length - 1) { size /= 1024; unit++; }
     return `${size.toFixed(unit ? 1 : 0)} ${units[unit]}`;
   };
-  const metricSection = (title, cards) => `<section class="metric-section"><h2 class="section-title">${escapeHtml(title)}</h2><div class="grid-3">${cards.map(([label, value, detail]) => metricCard(label, value, detail)).join("")}</div></section>`;
+  const metricSection = (title, cards, extra = "") => `<section class="metric-section"><h2 class="section-title">${escapeHtml(title)}</h2><div class="grid-3">${cards.map(([label, value, detail]) => metricCard(label, value, detail)).join("")}</div>${extra}</section>`;
+  const metricsTable = (headers, rows, emptyMessage) => `<div class="obs-table-wrap"><table class="obs-table"><thead><tr>${headers.map(header => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${rows.length ? rows.map(row => `<tr>${row.map(cell => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`).join("") : `<tr><td colspan="${headers.length}" class="text-muted">${escapeHtml(emptyMessage)}</td></tr>`}</tbody></table></div>`;
+  const utcDayLabel = date => new Date(`${date}T00:00:00.000Z`).toLocaleDateString("en-IN", { day: "2-digit", month: "short", timeZone: "UTC" });
+  const d1TrendDates = [...new Set([...d1HistoryRows, ...d1StorageHistoryRows].map(row => row?.dimensions?.date).filter(Boolean))].sort().reverse();
+  const d1Trend = metricsTable(
+    ["UTC date", "Read queries", "Write queries", "Rows read", "Rows written", "Database size"],
+    d1TrendDates.map(date => {
+      const queryRow = d1HistoryRows.find(row => row?.dimensions?.date === date);
+      const storageRow = d1StorageHistoryRows.find(row => row?.dimensions?.date === date);
+      return [utcDayLabel(date), numberOrDash(queryRow?.sum?.readQueries), numberOrDash(queryRow?.sum?.writeQueries), numberOrDash(queryRow?.sum?.rowsRead), numberOrDash(queryRow?.sum?.rowsWritten), bytes(storageRow?.max?.databaseSizeBytes)];
+    }),
+    "No D1 daily analytics returned for these dates."
+  );
+  const kvTrendDates = [...new Set([...kvHistoryRows, ...kvStorageHistoryRows].map(row => row?.dimensions?.date).filter(Boolean))].sort().reverse();
+  const kvTrend = metricsTable(
+    ["UTC date", "Reads", "Writes", "Deletes", "Lists", "Read P90", "Write P90", "Keys", "Storage"],
+    kvTrendDates.map(date => {
+      const actionRows = kvHistoryRows.filter(row => row?.dimensions?.date === date);
+      const countFor = action => {
+        const actionRowsForType = actionRows.filter(row => String(row?.dimensions?.actionType || "").toLowerCase() === action);
+        return actionRowsForType.length ? number(sum(actionRowsForType, "requests")) : "0";
+      };
+      const latencyFor = (action, quantile) => {
+        const row = actionRows.find(item => String(item?.dimensions?.actionType || "").toLowerCase() === action);
+        return row?.quantiles?.[quantile] == null ? "—" : `${Number(row.quantiles[quantile]).toFixed(1)} ms`;
+      };
+      const storageRow = kvStorageHistoryRows.find(row => row?.dimensions?.date === date);
+      return [utcDayLabel(date), countFor("read"), countFor("write"), countFor("delete"), countFor("list"), latencyFor("read", "latencyMsP90"), latencyFor("write", "latencyMsP90"), numberOrDash(storageRow?.max?.keyCount), bytes(storageRow?.max?.byteCount)];
+    }),
+    "No KV daily analytics returned for these dates."
+  );
   const d1 = latest(d1Rows);
-  const d1Storage = latest(d1StorageRows);
-  const kvCounts = ["read", "write", "delete", "list"].map(action => `${action}: ${number(kvRows.filter(row => String(row?.dimensions?.actionType || "").toLowerCase() === action).reduce((total, row) => total + (Number(row?.sum?.requests) || 0), 0))}`).join(" · ");
+  const d1Storage = latest(d1StorageHistoryRows);
+  const workerLatest = latest(workerRows);
+  const workerRequests = workerRows.length ? sum(workerRows, "requests") : null;
+  const workerErrors = workerRows.length ? sum(workerRows, "errors") : null;
+  const workerErrorRate = workerRequests > 0 && workerErrors != null ? `${(workerErrors / workerRequests * 100).toFixed(2)}%` : "No data";
+  const workerSample = workerLatest?.dimensions?.datetime ? `Latest Cloudflare analytics bucket · ${new Date(workerLatest.dimensions.datetime).toLocaleString()}` : "Latest Cloudflare analytics bucket";
+  const milliseconds = value => value == null || !Number.isFinite(Number(value)) ? "No data" : `${Number(value).toFixed(1)} ms`;
+  const latestKvAction = action => latest(kvRows.filter(row => String(row?.dimensions?.actionType || "").toLowerCase() === action));
+  const kvLatencyPair = row => {
+    const p50 = row?.quantiles?.latencyMsP50;
+    const p90 = row?.quantiles?.latencyMsP90;
+    if (p50 == null && p90 == null) return "No data";
+    return `${p50 == null ? "—" : Number(p50).toFixed(1)} / ${p90 == null ? "—" : Number(p90).toFixed(1)} ms`;
+  };
   const sections = [
     metricSection("CloudCart Worker", [
-      ["Requests", workerRows.length ? number(sum(workerRows, "requests")) : "No data", "Filtered by CloudCart Worker script"],
-      ["Runtime errors", workerRows.length ? number(sum(workerRows, "errors")) : "No data", "Worker invocation errors"]
+      ["Requests", workerRequests == null ? "No data" : number(workerRequests), "Filtered by CloudCart Worker script"],
+      ["Runtime errors", workerErrors == null ? "No data" : number(workerErrors), `Cloudflare invocation errors · ${workerErrorRate} of requests`],
+      ["Subrequests", workerRows.length ? number(sum(workerRows, "subrequests")) : "No data", "Outbound fetch() requests made by this Worker"],
+      ["CPU time P50", milliseconds(workerLatest?.quantiles?.cpuTimeP50), `${workerSample} · Worker CPU time per invocation`],
+      ["CPU time P99", milliseconds(workerLatest?.quantiles?.cpuTimeP99), `${workerSample} · Worker CPU time per invocation`],
+      ["Wall time P50", milliseconds(workerLatest?.quantiles?.wallTimeP50), `${workerSample} · runtime elapsed time, not client response latency`],
+      ["Wall time P99", milliseconds(workerLatest?.quantiles?.wallTimeP99), `${workerSample} · runtime elapsed time, not client response latency`]
     ]),
     metricSection("CloudCart D1 database", [
-      ["Read queries", d1Rows.length ? number(sum(d1Rows, "readQueries")) : "No data", "UTC-day D1 analytics"],
-      ["Write queries", d1Rows.length ? number(sum(d1Rows, "writeQueries")) : "No data", "UTC-day D1 analytics"],
-      ["Rows read", d1Rows.length ? number(sum(d1Rows, "rowsRead")) : "No data", `${number(sum(d1Rows, "rowsWritten"))} rows written`],
+      ["Read queries", d1Rows.length ? number(sum(d1Rows, "readQueries")) : "No data", `Selected UTC date(s) · ${result.selectedDateStart || "—"} to ${result.selectedDateEnd || "—"}`],
+      ["Write queries", d1Rows.length ? number(sum(d1Rows, "writeQueries")) : "No data", `Selected UTC date(s) · ${result.selectedDateStart || "—"} to ${result.selectedDateEnd || "—"}`],
+      ["Rows read", d1Rows.length ? number(sum(d1Rows, "rowsRead")) : "No data", d1Rows.length ? `${number(sum(d1Rows, "rowsWritten"))} rows written in selected UTC date(s)` : "No D1 analytics for selected UTC date(s)"],
       ["Query response", d1Rows.length ? bytes(sum(d1Rows, "queryBatchResponseBytes")) : "No data", "Serialized response bytes"],
       ["Latest query latency P90", d1?.quantiles?.queryBatchTimeMsP90 == null ? "No data" : `${Number(d1.quantiles.queryBatchTimeMsP90).toFixed(1)} ms`, d1?.dimensions?.date ? `UTC day ${d1.dimensions.date}` : "Latest available daily bucket"],
-      ["Database size", d1StorageRows.length ? bytes(d1Storage?.max?.databaseSizeBytes) : "No data", d1Storage?.dimensions?.date ? `Latest sample · ${d1Storage.dimensions.date}` : "Latest available daily sample"]
-    ]),
+      ["Database size", d1StorageHistoryRows.length ? bytes(d1Storage?.max?.databaseSizeBytes) : "No data", d1Storage?.dimensions?.date ? `Latest sample · ${d1Storage.dimensions.date}` : "Latest available daily sample"]
+    ], `<h3 class="section-title">D1 daily trend · latest 7 UTC dates</h3>${d1Trend}`),
     metricSection("CloudCart KV namespace", [
-      ["Operations", kvRows.length ? number(sum(kvRows, "requests")) : "No data", kvCounts],
-      ["KV reads", kvRows.length ? number(kvRows.filter(row => String(row?.dimensions?.actionType || "").toLowerCase() === "read").reduce((total, row) => total + (Number(row?.sum?.requests) || 0), 0)) : "No data", "Filtered by CloudCart KV namespace ID"]
-    ]),
+      ["KV reads", kvRows.length ? number(kvRows.filter(row => String(row?.dimensions?.actionType || "").toLowerCase() === "read").reduce((total, row) => total + (Number(row?.sum?.requests) || 0), 0)) : "No data", "Selected UTC date(s) · namespace scoped"],
+      ["KV writes", kvRows.length ? number(kvRows.filter(row => String(row?.dimensions?.actionType || "").toLowerCase() === "write").reduce((total, row) => total + (Number(row?.sum?.requests) || 0), 0)) : "No data", "Selected UTC date(s) · namespace scoped"],
+      ["KV deletes", kvRows.length ? number(kvRows.filter(row => String(row?.dimensions?.actionType || "").toLowerCase() === "delete").reduce((total, row) => total + (Number(row?.sum?.requests) || 0), 0)) : "No data", "Selected UTC date(s) · namespace scoped"],
+      ["KV lists", kvRows.length ? number(kvRows.filter(row => String(row?.dimensions?.actionType || "").toLowerCase() === "list").reduce((total, row) => total + (Number(row?.sum?.requests) || 0), 0)) : "No data", "Selected UTC date(s) · namespace scoped"],
+      ["Read latency P50 / P90", kvLatencyPair(latestKvAction("read")), latestKvAction("read")?.dimensions?.date ? `Latest read bucket · ${latestKvAction("read").dimensions.date}` : "Latest namespace read latency"],
+      ["Write latency P50 / P90", kvLatencyPair(latestKvAction("write")), latestKvAction("write")?.dimensions?.date ? `Latest write bucket · ${latestKvAction("write").dimensions.date}` : "Latest namespace write latency"],
+      ["Stored keys", kvStorageHistoryRows.length ? number(latest(kvStorageHistoryRows)?.max?.keyCount) : "No data", latest(kvStorageHistoryRows)?.dimensions?.date ? `Namespace snapshot · ${latest(kvStorageHistoryRows).dimensions.date}` : "Latest namespace snapshot"],
+      ["Storage used", kvStorageHistoryRows.length ? bytes(latest(kvStorageHistoryRows)?.max?.byteCount) : "No data", latest(kvStorageHistoryRows)?.dimensions?.date ? `Namespace snapshot · ${latest(kvStorageHistoryRows).dimensions.date}` : "Latest namespace snapshot"]
+    ], `<h3 class="section-title">KV daily trend · latest 7 UTC dates</h3>${kvTrend}`),
     metricSection("CloudCart Durable Objects", [
       ["Requests", doRows.length ? number(sum(doRows, "requests")) : "No data", "Filtered by CloudCart Worker script"],
       ["Response bytes", doRows.length ? bytes(sum(doRows, "responseBodySize")) : "No data", "Durable Object invocation responses"]

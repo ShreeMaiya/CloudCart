@@ -98,12 +98,18 @@ async function cloudflareProjectMetrics(env, range) {
   const window = rangeWindow(range, ACCOUNT_METRICS_CACHE_MS);
   const start = new Date(window.from);
   const end = new Date(window.to);
+  const selectedDateStart = start.toISOString().slice(0, 10);
+  const selectedDateEnd = end.toISOString().slice(0, 10);
+  const historyStart = new Date(`${selectedDateEnd}T00:00:00.000Z`);
+  historyStart.setUTCDate(historyStart.getUTCDate() - 6);
   const variables = {
     accountTag: env.CF_ACCOUNT_ID,
     datetimeStart: start.toISOString(),
     datetimeEnd: end.toISOString(),
-    dateStart: start.toISOString().slice(0, 10),
-    dateEnd: end.toISOString().slice(0, 10),
+    dateStart: selectedDateStart,
+    dateEnd: selectedDateEnd,
+    historyStart: historyStart.toISOString().slice(0, 10),
+    historyEnd: selectedDateEnd,
     scriptName: env.CF_WORKER_NAME || "cloudcart-worker",
     databaseId: env.CF_D1_DATABASE_ID || "",
     kvNamespaceId: env.CF_KV_NAMESPACE_ID || ""
@@ -111,8 +117,8 @@ async function cloudflareProjectMetrics(env, range) {
   const cacheKey = `graphql:${JSON.stringify(variables)}`;
   const hit = cached(cacheKey, ACCOUNT_METRICS_CACHE_MS);
   if (hit) return hit;
-  const kvFields = variables.kvNamespaceId ? `kvOperationsAdaptiveGroups(limit: 1000, filter: { date_geq: $dateStart, date_leq: $dateEnd, namespaceId: $kvNamespaceId }) { sum { requests } quantiles { latencyMsP50 latencyMsP90 latencyMsP99 } dimensions { date actionType } } kvStorageAdaptiveGroups(limit: 100, filter: { date_geq: $dateStart, date_leq: $dateEnd, namespaceId: $kvNamespaceId }) { max { keyCount byteCount } dimensions { date } }` : "";
-  const query = `query CloudCartOperationalMetrics($accountTag: string!, $datetimeStart: string, $datetimeEnd: string, $dateStart: Date, $dateEnd: Date, $scriptName: string, $databaseId: string, $kvNamespaceId: string) { viewer { accounts(filter: { accountTag: $accountTag }) { workersInvocationsAdaptive(limit: 1000, filter: { scriptName: $scriptName, datetime_geq: $datetimeStart, datetime_leq: $datetimeEnd }) { sum { requests errors subrequests } quantiles { cpuTimeP50 cpuTimeP99 wallTimeP50 wallTimeP99 } dimensions { datetime } } d1AnalyticsAdaptiveGroups(limit: 1000, filter: { date_geq: $dateStart, date_leq: $dateEnd, databaseId: $databaseId }) { sum { readQueries writeQueries rowsRead rowsWritten queryBatchResponseBytes } quantiles { queryBatchTimeMsP90 } dimensions { date } } d1StorageAdaptiveGroups(limit: 100, filter: { date_geq: $dateStart, date_leq: $dateEnd, databaseId: $databaseId }) { max { databaseSizeBytes } dimensions { date } } ${kvFields} durableObjectsInvocationsAdaptiveGroups(limit: 1000, filter: { date_geq: $dateStart, date_leq: $dateEnd, scriptName: $scriptName }) { sum { requests responseBodySize } dimensions { date } } } } }`;
+  const kvFields = variables.kvNamespaceId ? `kvOperationsAdaptiveGroups(limit: 1000, filter: { date_geq: $historyStart, date_leq: $historyEnd, namespaceId: $kvNamespaceId }) { sum { requests } quantiles { latencyMsP50 latencyMsP90 latencyMsP99 } dimensions { date actionType } } kvStorageAdaptiveGroups(limit: 100, filter: { date_geq: $historyStart, date_leq: $historyEnd, namespaceId: $kvNamespaceId }) { max { keyCount byteCount } dimensions { date } }` : "";
+  const query = `query CloudCartOperationalMetrics($accountTag: string!, $datetimeStart: string, $datetimeEnd: string, $dateStart: Date, $dateEnd: Date, $historyStart: Date, $historyEnd: Date, $scriptName: string, $databaseId: string, $kvNamespaceId: string) { viewer { accounts(filter: { accountTag: $accountTag }) { workersInvocationsAdaptive(limit: 1000, filter: { scriptName: $scriptName, datetime_geq: $datetimeStart, datetime_leq: $datetimeEnd }) { sum { requests errors subrequests } quantiles { cpuTimeP50 cpuTimeP99 wallTimeP50 wallTimeP99 } dimensions { datetime } } d1AnalyticsAdaptiveGroups(limit: 1000, filter: { date_geq: $historyStart, date_leq: $historyEnd, databaseId: $databaseId }) { sum { readQueries writeQueries rowsRead rowsWritten queryBatchResponseBytes } quantiles { queryBatchTimeMsP90 } dimensions { date } } d1StorageAdaptiveGroups(limit: 100, filter: { date_geq: $historyStart, date_leq: $historyEnd, databaseId: $databaseId }) { max { databaseSizeBytes } dimensions { date } } ${kvFields} durableObjectsInvocationsAdaptiveGroups(limit: 1000, filter: { date_geq: $dateStart, date_leq: $dateEnd, scriptName: $scriptName }) { sum { requests responseBodySize } dimensions { date } } } } }`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS);
   try {
@@ -129,7 +135,11 @@ async function cloudflareProjectMetrics(env, range) {
       data: body?.data?.viewer?.accounts?.[0] || null,
       d1DatabaseConfigured: Boolean(variables.databaseId && !/^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(variables.databaseId)),
       kvNamespaceConfigured: Boolean(variables.kvNamespaceId),
-      dateCoverage: `D1, KV, and Durable Object analytics are UTC-day aggregates (${variables.dateStart} through ${variables.dateEnd}); a short time-range selection still includes the full UTC day. Cloudflare may delay analytics updates.`,
+      selectedDateStart,
+      selectedDateEnd,
+      historyDateStart: variables.dateStart,
+      historyDateEnd: variables.dateEnd,
+      dateCoverage: `D1 and KV analytics are UTC-day aggregates. Operation cards cover the selected UTC date(s) (${selectedDateStart} through ${selectedDateEnd}); storage cards show the latest available sample. Daily trends cover the latest seven UTC dates (${variables.historyStart} through ${variables.historyEnd}). Cloudflare may delay analytics updates.`,
       fetchedAt: new Date().toISOString()
     });
   } catch {
@@ -198,7 +208,7 @@ function writeHealthProbeCache(ctx, request, services) {
     });
     const write = caches.default.put(healthProbeCacheKey(request), cachedResponse);
     if (ctx?.waitUntil) ctx.waitUntil(write);
-    else write.catch(() => {});
+    else write.catch(() => { });
   } catch { /* Module memory cache remains available if Cache API is unavailable. */ }
 }
 
@@ -221,7 +231,7 @@ async function probeDependencies(env, force = false) {
       const start = performance.now();
       try {
         await env.CLOUDCART_KV.get("__cloudcart_health_probe_v1");
-        return { id: "kv", name: "Cloudflare KV", tier: "Storage", status: "HEALTHY", latencyMs: Math.round(performance.now() - start), checkedAt: new Date().toISOString(), detail: "One explicit KV read probe (counts toward KV read quota)." };
+        return { id: "kv", name: "Cloudflare KV", tier: "Storage", status: "HEALTHY", latencyMs: Math.round(performance.now() - start), checkedAt: new Date().toISOString(), detail: "One explicit KV read probe." };
       } catch { return { id: "kv", name: "Cloudflare KV", tier: "Storage", status: "DOWN", latencyMs: Math.round(performance.now() - start), checkedAt: new Date().toISOString(), detail: "KV probe failed." }; }
     })(),
     (async () => {
@@ -260,24 +270,24 @@ function aggregateMetrics(groups) {
   const latestRow = rows =>
     rows.length
       ? [...rows].sort((a, b) =>
-          String(b?.dimensions?.date || b?.dimensions?.datetime || "").localeCompare(
-            String(a?.dimensions?.date || a?.dimensions?.datetime || "")
-          )
-        )[0]
+        String(b?.dimensions?.date || b?.dimensions?.datetime || "").localeCompare(
+          String(a?.dimensions?.date || a?.dimensions?.datetime || "")
+        )
+      )[0]
       : null;
 
   // Workers — real-time invocation analytics from Cloudflare Workers Observability
   const workerLatest = latestRow(workerRows);
   const worker = workerRows.length
     ? {
-        requests:        sumField(workerRows, "requests"),
-        errors:          sumField(workerRows, "errors"),
-        subrequests:     sumField(workerRows, "subrequests"),
-        cpuTimeP50Ms:    workerLatest?.quantiles?.cpuTimeP50 ?? null,
-        cpuTimeP99Ms:    workerLatest?.quantiles?.cpuTimeP99 ?? null,
-        wallTimeP50Ms:   workerLatest?.quantiles?.wallTimeP50 ?? null,
-        wallTimeP99Ms:   workerLatest?.quantiles?.wallTimeP99 ?? null
-      }
+      requests: sumField(workerRows, "requests"),
+      errors: sumField(workerRows, "errors"),
+      subrequests: sumField(workerRows, "subrequests"),
+      cpuTimeP50Ms: workerLatest?.quantiles?.cpuTimeP50 ?? null,
+      cpuTimeP99Ms: workerLatest?.quantiles?.cpuTimeP99 ?? null,
+      wallTimeP50Ms: workerLatest?.quantiles?.wallTimeP50 ?? null,
+      wallTimeP99Ms: workerLatest?.quantiles?.wallTimeP99 ?? null
+    }
     : null;
 
   // D1 — UTC-day aggregate analytics from Cloudflare D1 Analytics API
@@ -285,16 +295,16 @@ function aggregateMetrics(groups) {
   const d1StorageLatest = latestRow(d1StorageRows);
   const d1 = d1Rows.length
     ? {
-        readQueries:             sumField(d1Rows, "readQueries"),
-        writeQueries:            sumField(d1Rows, "writeQueries"),
-        rowsRead:                sumField(d1Rows, "rowsRead"),
-        rowsWritten:             sumField(d1Rows, "rowsWritten"),
-        queryBatchResponseBytes: sumField(d1Rows, "queryBatchResponseBytes"),
-        queryBatchTimeMsP90:     d1Latest?.quantiles?.queryBatchTimeMsP90 ?? null,
-        latestDate:              d1Latest?.dimensions?.date ?? null,
-        databaseSizeBytes:       d1StorageLatest?.max?.databaseSizeBytes ?? null,
-        storageSampleDate:       d1StorageLatest?.dimensions?.date ?? null
-      }
+      readQueries: sumField(d1Rows, "readQueries"),
+      writeQueries: sumField(d1Rows, "writeQueries"),
+      rowsRead: sumField(d1Rows, "rowsRead"),
+      rowsWritten: sumField(d1Rows, "rowsWritten"),
+      queryBatchResponseBytes: sumField(d1Rows, "queryBatchResponseBytes"),
+      queryBatchTimeMsP90: d1Latest?.quantiles?.queryBatchTimeMsP90 ?? null,
+      latestDate: d1Latest?.dimensions?.date ?? null,
+      databaseSizeBytes: d1StorageLatest?.max?.databaseSizeBytes ?? null,
+      storageSampleDate: d1StorageLatest?.dimensions?.date ?? null
+    }
     : null;
 
   // KV — UTC-day aggregate analytics filtered by KV namespace ID
@@ -304,23 +314,23 @@ function aggregateMetrics(groups) {
       .reduce((total, row) => total + (Number(row?.sum?.requests) || 0), 0);
   const kv = kvRows.length
     ? {
-        totalRequests: sumField(kvRows, "requests"),
-        reads:         kvByAction("read"),
-        writes:        kvByAction("write"),
-        deletes:       kvByAction("delete"),
-        lists:         kvByAction("list"),
-        latencyP50Ms:  latestRow(kvRows)?.quantiles?.latencyMsP50 ?? null,
-        latencyP90Ms:  latestRow(kvRows)?.quantiles?.latencyMsP90 ?? null,
-        latencyP99Ms:  latestRow(kvRows)?.quantiles?.latencyMsP99 ?? null
-      }
+      totalRequests: sumField(kvRows, "requests"),
+      reads: kvByAction("read"),
+      writes: kvByAction("write"),
+      deletes: kvByAction("delete"),
+      lists: kvByAction("list"),
+      latencyP50Ms: latestRow(kvRows)?.quantiles?.latencyMsP50 ?? null,
+      latencyP90Ms: latestRow(kvRows)?.quantiles?.latencyMsP90 ?? null,
+      latencyP99Ms: latestRow(kvRows)?.quantiles?.latencyMsP99 ?? null
+    }
     : null;
 
   // Durable Objects — UTC-day aggregate analytics filtered by Worker script name
   const durableObjects = doRows.length
     ? {
-        requests:          sumField(doRows, "requests"),
-        responseBodyBytes: sumField(doRows, "responseBodySize")
-      }
+      requests: sumField(doRows, "requests"),
+      responseBodyBytes: sumField(doRows, "responseBodySize")
+    }
     : null;
 
   return { worker, d1, kv, durableObjects };
@@ -371,7 +381,17 @@ export async function handleObservabilityRoute(request, env, ctx, path, url) {
     }
     // summary contains only fields that are genuinely populated from Cloudflare APIs.
     // Absent data (unconfigured service, no rows for range) is explicitly null — never fabricated.
-    const summary = aggregateMetrics(projectMetrics.data);
+    const inSelectedUtcRange = row => {
+      const date = String(row?.dimensions?.date || "");
+      return date >= projectMetrics.selectedDateStart && date <= projectMetrics.selectedDateEnd;
+    };
+    const selectedGroups = projectMetrics.data ? {
+      ...projectMetrics.data,
+      d1AnalyticsAdaptiveGroups: (projectMetrics.data.d1AnalyticsAdaptiveGroups || []).filter(inSelectedUtcRange),
+      d1StorageAdaptiveGroups: (projectMetrics.data.d1StorageAdaptiveGroups || []).filter(inSelectedUtcRange),
+      kvOperationsAdaptiveGroups: (projectMetrics.data.kvOperationsAdaptiveGroups || []).filter(inSelectedUtcRange)
+    } : null;
+    const summary = aggregateMetrics(selectedGroups);
     return response({
       success: true,
       data: {
