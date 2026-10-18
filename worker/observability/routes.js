@@ -53,8 +53,8 @@ function cloudflareApiError(service, response, body) {
 }
 
 async function cloudflareQuery(env, { view, range, limit, parameters = {} }) {
-  if (!env.CF_ACCOUNT_ID || !env.CF_OBSERVABILITY_API_TOKEN) {
-    return { configured: false, error: "Set CF_ACCOUNT_ID and CF_OBSERVABILITY_API_TOKEN Worker secrets to enable Cloudflare telemetry." };
+  if (!env.CF_ACCOUNT_ID || !env.CLOUDFLARE_API_TOKEN) {
+    return { configured: false, error: "Set CF_ACCOUNT_ID and CLOUDFLARE_API_TOKEN Worker secrets to enable Cloudflare telemetry." };
   }
   const safeLimit = Math.max(1, Math.min(Number(limit) || 100, 100));
   const key = JSON.stringify({ view, range, safeLimit, parameters });
@@ -67,7 +67,7 @@ async function cloudflareQuery(env, { view, range, limit, parameters = {} }) {
     const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(env.CF_ACCOUNT_ID)}/workers/observability/telemetry/query`, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${env.CF_OBSERVABILITY_API_TOKEN}`,
+        "Authorization": `Bearer ${env.CLOUDFLARE_API_TOKEN}`,
         "Content-Type": "application/json",
         "Accept": "application/json"
       },
@@ -94,7 +94,7 @@ async function cloudflareQuery(env, { view, range, limit, parameters = {} }) {
 }
 
 async function cloudflareProjectMetrics(env, range) {
-  if (!env.CF_ACCOUNT_ID || !env.CF_OBSERVABILITY_API_TOKEN) return { configured: false, error: "Cloudflare project metrics are not configured." };
+  if (!env.CF_ACCOUNT_ID || !env.CLOUDFLARE_API_TOKEN) return { configured: false, error: "Cloudflare project metrics are not configured." };
   const window = rangeWindow(range, ACCOUNT_METRICS_CACHE_MS);
   const start = new Date(window.from);
   const end = new Date(window.to);
@@ -124,7 +124,7 @@ async function cloudflareProjectMetrics(env, range) {
   try {
     const res = await fetch("https://api.cloudflare.com/client/v4/graphql", {
       method: "POST",
-      headers: { "Authorization": `Bearer ${env.CF_OBSERVABILITY_API_TOKEN}`, "Content-Type": "application/json", "Accept": "application/json" },
+      headers: { "Authorization": `Bearer ${env.CLOUDFLARE_API_TOKEN}`, "Content-Type": "application/json", "Accept": "application/json" },
       body: JSON.stringify({ query, variables }),
       signal: controller.signal
     });
@@ -155,7 +155,7 @@ function getTelemetryError(result) {
 }
 
 function healthSnapshot(env, request) {
-  const configured = Boolean(env?.CF_ACCOUNT_ID && env?.CF_OBSERVABILITY_API_TOKEN);
+  const configured = Boolean(env?.CF_ACCOUNT_ID && env?.CLOUDFLARE_API_TOKEN);
   const requestUrl = new URL(request.url);
   let allowedUrl = null;
   try { if (env?.ALLOWED_ORIGIN) allowedUrl = new URL(env.ALLOWED_ORIGIN); } catch { /* Invalid optional origin does not break health reporting. */ }
@@ -167,7 +167,7 @@ function healthSnapshot(env, request) {
     { id: "d1", name: "Cloudflare D1", tier: "Database", status: "UNKNOWN", signal: "Not actively probed", detail: "Use Run health check to issue one SELECT 1 probe." },
     { id: "kv", name: "Cloudflare KV", tier: "Storage", status: "UNKNOWN", signal: "Not actively probed", detail: "Use Run health check to issue one KV read." },
     { id: "inventory_do", name: "Inventory Durable Object", tier: "Durable Object", status: "UNKNOWN", signal: "Not actively probed", detail: "Use Run health check to invoke the InventoryDO health endpoint." },
-    { id: "cloudflare_telemetry", name: "Cloudflare Observability API", tier: "Telemetry", status: configured ? "UNKNOWN" : "NOT_CONFIGURED", signal: configured ? "Not queried yet" : "Missing secrets", detail: configured ? "Native logs are queried on demand." : "Configure CF_ACCOUNT_ID and CF_OBSERVABILITY_API_TOKEN." }
+    { id: "cloudflare_telemetry", name: "Cloudflare Observability API", tier: "Telemetry", status: configured ? "UNKNOWN" : "NOT_CONFIGURED", signal: configured ? "Not queried yet" : "Missing secrets", detail: configured ? "Native logs are queried on demand." : "Configure CF_ACCOUNT_ID and CLOUDFLARE_API_TOKEN." }
   ];
   if (probeCache.services && Date.now() - probeCache.at < HEALTH_PROBE_CACHE_MS) {
     for (const probed of probeCache.services) {

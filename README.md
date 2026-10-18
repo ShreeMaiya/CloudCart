@@ -63,34 +63,46 @@ flowchart TD
 
 ---
 
-## 🌐 Automated Cloudflare Deployment (GitHub Actions)
+## 🌐 Deploy with GitHub Actions
 
-This repository includes a fully automated provisioning script (`scripts/setup.js`) that creates all required Cloudflare resources (D1 Database, KV Namespace), configures the Service Binding, and deploys both the Worker and Pages projects.
+Deployment is designed for GitHub Actions and Cloudflare. There is no local setup requirement for deploying this project.
 
-### Setup Instructions:
-1. Push this repository to GitHub.
-2. In your GitHub repository, navigate to **Settings > Secrets and variables > Actions**.
-3. Add the following repository secrets:
-   - `CLOUDFLARE_API_TOKEN`: Cloudflare API Token with Workers, D1, KV, and Pages edit permissions.
-   - `CLOUDFLARE_ACCOUNT_ID`: Found on your Cloudflare Dashboard homepage right sidebar.
-4. Any push to `main` (or clicking **Run workflow** under Actions) will automatically provision D1/KV, run database migrations, and deploy CloudCart to Cloudflare!
+### Prerequisites
 
----
+- A Cloudflare account with Workers, Pages, D1, KV, Durable Objects, and Workers Observability enabled as needed.
+- A GitHub repository containing this project.
+- A Cloudflare API token with permission to manage Workers, Pages, D1, KV, and the account-level analytics/observability APIs used by the dashboard.
 
-## ⚡ 3. Cloudflare-Native Observability (`/admin/observability/`)
+### Configure GitHub Actions secrets
+
+In **GitHub → Settings → Secrets and variables → Actions**, add exactly these repository secrets:
+
+| Secret | Required | Purpose |
+| --- | --- | --- |
+| `CLOUDFLARE_ACCOUNT_ID` | Yes | Cloudflare account ID where the resources will be provisioned. |
+| `CLOUDFLARE_API_TOKEN` | Yes | Used by the provisioning script and Wrangler to create resources, deploy the Worker and Pages project, apply the D1 schema, and query observability data. |
+
+The workflow does **not** require a separate observability GitHub secret. The existing `CLOUDFLARE_API_TOKEN` is also installed as a Worker secret with the same name for server-side observability queries. The observability dashboard currently has no separate password or admin-key login.
+
+### Deploy
+
+1. Push the repository to GitHub.
+2. Make sure the default branch is `main`.
+3. Add the two required GitHub Actions secrets above.
+4. Push to `main`, or open **Actions → Provision & Deploy CloudCart to Cloudflare → Run workflow**.
+5. The workflow installs dependencies, provisions or reuses the D1 database and KV namespace, applies the schema and initial catalog, deploys the Worker, configures the Pages service binding, and deploys the frontend.
+
+The deployment script writes the generated Cloudflare resource IDs into `wrangler.toml`. Do not commit real API tokens or other credentials to the repository.
+
+The Pages API proxy requires the `API_WORKER` service binding created by the deployment script. It does not fall back to another account's Worker hostname. If the binding is missing or misconfigured, API requests return HTTP `503` with a configuration error until the Pages deployment configuration is corrected.
+
+## ⚡ Cloudflare-Native Observability (`/admin/observability/`)
 
 The observability dashboard queries Cloudflare Workers Observability for recent logs, metrics, and traces. It does not write observability data to D1 or KV. Cloudflare retains logs and traces for a limited period; this project does not keep a separate historical telemetry store.
 
-### Configure access
+The deployment workflow reuses `CLOUDFLARE_API_TOKEN` for Cloudflare telemetry queries and installs it as a Worker secret with the same name. The token must have the observability and analytics permissions required by the dashboard in addition to the deployment permissions. The Cloudflare API token stays in Worker secrets and is never sent to browser code.
 
-The workflow uses these two existing **repository secrets** and installs the observability values into the `cloudcart-worker` Worker after each deploy:
-
-| GitHub secret | Purpose |
-| --- | --- |
-| `CLOUDFLARE_API_TOKEN` | Your existing deploy token, also used to query Cloudflare telemetry. It needs Workers Observability Write and Account Analytics Read permissions in addition to the permissions needed for deployment. |
-| `OBSERVABILITY_API_KEY` | Existing GitHub secret retained for later; the current dashboard does not require it. |
-
-The workflow reuses your existing `CLOUDFLARE_ACCOUNT_ID` as a Worker variable and your existing `CLOUDFLARE_API_TOKEN` for both deployment and Cloudflare telemetry queries. Neither admin page currently has a password prompt. Observability API routes are open, so anyone who can reach the Worker can query its telemetry; authentication can be added later. The Cloudflare API token stays in Worker secrets and is never sent to browser code. `scripts/setup.js` fills `CF_WORKER_NAME` and `CF_D1_DATABASE_ID` in Wrangler configuration when it provisions resources; for manual provisioning, set those variables to the deployed Worker name and D1 database UUID.
+Neither admin page currently has a password prompt. Observability API routes are open, so anyone who can reach the Worker can query its telemetry. Add application authentication before using the admin or observability pages for sensitive production data.
 
 After deployment, open **Admin** or **Observability** directly without a password prompt. The dashboard auto-refresh is off by default; each view is queried on demand and cached briefly in Worker memory.
 
@@ -99,5 +111,3 @@ After deployment, open **Admin** or **Observability** directly without a passwor
 Passive health refreshes do not call D1, KV, or the Durable Object. They show unknown when the dashboard has no fresh evidence. **Run health check** deliberately performs one D1 `SELECT 1`, one KV read, and one InventoryDO request; the result is reused for 30 seconds. Pages availability is not inferred from a backend Worker probe.
 
 Logs and traces are sampled and may not represent every invocation. Current tracing sampling is configured in `wrangler.toml`; review Cloudflare Observability usage and pricing before increasing it. Keep personal/customer data out of log messages and span attributes.
-
-
