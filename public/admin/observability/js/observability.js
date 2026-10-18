@@ -56,11 +56,11 @@ async function runHealthCheck() {
   const button = document.getElementById("probeBtn");
   button.disabled = true;
   button.textContent = "Checking…";
-  const data = await fetchApi(`${API}/probe`, { method: "POST" });
+  const data = await fetchApi(`${API}/health?probe=1`);
   button.disabled = false;
   button.textContent = "Run health check";
   if (data?.error) return showError("serviceCards", data.error);
-  renderHealth({ overallStatus: "UNKNOWN", timestamp: new Date().toISOString(), probe: true, services: data?.services || [] });
+  renderHealth(data);
 }
 
 function renderHealth(data) {
@@ -131,6 +131,9 @@ async function loadMetrics() {
   const result = data?.data || {};
   const account = result.accountMetrics || {};
   const groups = account.data || {};
+  if (account.error) {
+    document.getElementById("metricsRequestTable").innerHTML = `<div class="empty-state">${escapeHtml(account.error)}</div>`;
+  } else {
   const workerRows = groups.workersInvocationsAdaptive || [];
   const d1Rows = groups.d1AnalyticsAdaptiveGroups || [];
   const doRows = groups.durableObjectsInvocationsAdaptiveGroups || [];
@@ -149,6 +152,7 @@ async function loadMetrics() {
     ${metricCard("D1 queries", d1.readQueries + d1.writeQueries, `${d1.readQueries} reads · ${d1.writeQueries} writes`)}
     ${metricCard("D1 rows read", d1.rowsRead, `${d1.rowsWritten} rows written`)}
   </div><div class="card-sub metrics-note">Cloudflare account analytics. D1 and Durable Object totals are grouped by UTC date, so a sub-day range can include a full UTC day. Worker request totals include requests made by this observability dashboard. Sampled telemetry counts may be estimates. This panel makes no D1 or KV calls.</div>`;
+  }
   const native = result.nativeBindingActivity?.data;
   const diagnostic = {
     nativeBindingActivity: native || result.nativeBindingActivity?.error || "Unavailable",

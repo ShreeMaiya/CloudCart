@@ -41,6 +41,13 @@ function saveCache(key, value) {
   return value;
 }
 
+function cloudflareApiError(service, response, body) {
+  if (response.status === 401 || response.status === 403) {
+    return `Cloudflare rejected the API token for ${service} (HTTP ${response.status}). Add the required Workers Observability Write and Account Analytics Read permissions to the existing CLOUDFLARE_API_TOKEN, then rerun deployment.`;
+  }
+  return body?.errors?.map(e => e.message).join("; ") || `Cloudflare ${service} returned HTTP ${response.status}.`;
+}
+
 async function cloudflareQuery(env, { view, range, limit, parameters = {} }) {
   if (!env.CF_ACCOUNT_ID || !env.CF_OBSERVABILITY_API_TOKEN) {
     return { configured: false, error: "Set CF_ACCOUNT_ID and CF_OBSERVABILITY_API_TOKEN Worker secrets to enable Cloudflare telemetry." };
@@ -72,7 +79,7 @@ async function cloudflareQuery(env, { view, range, limit, parameters = {} }) {
     });
     const body = await res.json().catch(() => null);
     if (!res.ok || body?.success === false || body?.errors?.length) {
-      return { configured: true, error: body?.errors?.map(e => e.message).join("; ") || `Cloudflare Observability API returned HTTP ${res.status}.`, status: res.status };
+      return { configured: true, error: cloudflareApiError("Observability API", res, body), status: res.status };
     }
     return saveCache(key, { configured: true, data: body?.result || body?.data || null, fetchedAt: new Date().toISOString() });
   } catch (err) {
@@ -99,7 +106,7 @@ async function cloudflareAccountMetrics(env, range) {
   const cacheKey = `graphql:${JSON.stringify(variables)}`;
   const hit = cached(cacheKey);
   if (hit) return hit;
-  const query = `query CloudCartOperationalMetrics($accountTag: string!, $datetimeStart: string, $datetimeEnd: string, $dateStart: Date, $dateEnd: Date, $scriptName: string, $databaseId: string) { viewer { accounts(filter: { accountTag: $accountTag }) { workersInvocationsAdaptive(limit: 1000, filter: { scriptName: $scriptName, datetime_geq: $datetimeStart, datetime_leq: $datetimeEnd }) { sum { requests errors subrequests } quantiles { cpuTimeP50 cpuTimeP99 } dimensions { status } } d1AnalyticsAdaptiveGroups(limit: 1000, filter: { date_geq: $dateStart, date_leq: $dateEnd, databaseId: $databaseId }) { sum { readQueries writeQueries rowsRead rowsWritten queryBatchTimeMs } quantiles { queryBatchTimeMsP90 } } durableObjectsInvocationsAdaptiveGroups(limit: 1000, filter: { date_geq: $dateStart, date_leq: $dateEnd, scriptName: $scriptName }) { sum { requests responseBodySize } } } } }`;
+  const query = `query CloudCartOperationalMetrics($accountTag: string!, $datetimeStart: string, $datetimeEnd: string, $dateStart: Date, $dateEnd: Date, $scriptName: string, $databaseId: string) { viewer { accounts(filter: { accountTag: $accountTag }) { workersInvocationsAdaptive(limit: 1000, filter: { scriptName: $scriptName, datetime_geq: $datetimeStart, datetime_leq: $datetimeEnd }) { sum { requests errors subrequests } quantiles { cpuTimeP50 cpuTimeP99 } } d1AnalyticsAdaptiveGroups(limit: 1000, filter: { date_geq: $dateStart, date_leq: $dateEnd, databaseId: $databaseId }) { sum { readQueries writeQueries rowsRead rowsWritten } quantiles { queryBatchTimeMsP90 } } durableObjectsInvocationsAdaptiveGroups(limit: 1000, filter: { date_geq: $dateStart, date_leq: $dateEnd, scriptName: $scriptName }) { sum { requests responseBodySize } } } } }`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS);
   try {
@@ -110,7 +117,7 @@ async function cloudflareAccountMetrics(env, range) {
       signal: controller.signal
     });
     const body = await res.json().catch(() => null);
-    if (!res.ok || body?.errors?.length) return { configured: true, error: body?.errors?.map(e => e.message).join("; ") || `Cloudflare GraphQL returned HTTP ${res.status}.`, status: res.status };
+    if (!res.ok || body?.errors?.length) return { configured: true, error: cloudflareApiError("GraphQL Analytics API", res, body), status: res.status };
     return saveCache(cacheKey, {
       configured: true,
       data: body?.data?.viewer?.accounts?.[0] || null,
@@ -193,10 +200,26 @@ export async function handleObservabilityRoute(request, env, _ctx, path, url) {
   if (!path.startsWith("/api/observability")) return null;
   if (request.method === "OPTIONS") return response(null, 204, request, env);
   if (path === "/api/observability/health" && request.method === "GET") {
-    const services = url.searchParams.get("probe") === "1" ? await probeDependencies(env) : healthSnapshot(env, request);
+    const shouldProbe = url.searchParams.get("probe") === "1";
+    const snapshot = healthSnapshot(env, request);
+    const services = shouldProbe
+      ? snapshot.map(service => {
+          const activeResult = probeCache.services?.find(item => item.id === service.id);
+          return activeResult && Date.now() - probeCache.at < 30_000
+            ? { ...activeResult, cached: true, signal: "Recent active probe", checkedAt: new Date(probeCache.at).toISOString() }
+            : service;
+        })
+      : snapshot;
+    if (shouldProbe) {
+      const activeResults = await probeDependencies(env);
+      for (const activeResult of activeResults) {
+        const index = services.findIndex(service => service.id === activeResult.id);
+        if (index >= 0) services[index] = activeResult;
+      }
+    }
     const statuses = services.map(s => s.status);
     const overallStatus = statuses.includes("DOWN") ? "DOWN" : statuses.includes("DEGRADED") ? "DEGRADED" : statuses.includes("UNKNOWN") || statuses.includes("NOT_CONFIGURED") ? "UNKNOWN" : "HEALTHY";
-    return response({ success: true, data: { overallStatus, timestamp: new Date().toISOString(), probe: url.searchParams.get("probe") === "1", services } }, 200, request, env);
+    return response({ success: true, data: { overallStatus, timestamp: new Date().toISOString(), probe: shouldProbe, services } }, 200, request, env);
   }
 
   if (path === "/api/observability/logs" && request.method === "GET") {
