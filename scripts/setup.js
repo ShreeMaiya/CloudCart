@@ -146,6 +146,7 @@ compatibility_flags = ["nodejs_compat"]
 CF_ACCOUNT_ID = "${ACCOUNT_ID}"
 CF_WORKER_NAME = "${RESOURCE_NAMES.worker}"
 CF_D1_DATABASE_ID = "${databaseId}"
+CF_KV_NAMESPACE_ID = "${kvId}"
 
 [observability]
 enabled = true

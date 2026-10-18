@@ -2,6 +2,7 @@
 // No observability data is written to D1/KV by this module.
 
 const QUERY_CACHE_MS = 15_000;
+const ACCOUNT_METRICS_CACHE_MS = 60_000;
 const QUERY_TIMEOUT_MS = 8_000;
 const queryCache = new Map();
 const probeCache = { at: 0, services: null };
@@ -22,15 +23,15 @@ function response(data, status = 200, request, env) {
   return new Response(status === 204 ? null : JSON.stringify(data), { status, headers });
 }
 
-function rangeWindow(range) {
+function rangeWindow(range, bucketMs = QUERY_CACHE_MS) {
   const minutes = RANGES[range] || RANGES["1h"];
-  const to = Math.floor(Date.now() / QUERY_CACHE_MS) * QUERY_CACHE_MS;
+  const to = Math.floor(Date.now() / bucketMs) * bucketMs;
   return { from: to - minutes * 60_000, to };
 }
 
-function cached(key) {
+function cached(key, ttl = QUERY_CACHE_MS) {
   const item = queryCache.get(key);
-  if (item && Date.now() - item.at < QUERY_CACHE_MS) return item.value;
+  if (item && Date.now() - item.at < ttl) return item.value;
   if (item) queryCache.delete(key);
   return null;
 }
@@ -91,7 +92,7 @@ async function cloudflareQuery(env, { view, range, limit, parameters = {} }) {
 
 async function cloudflareAccountMetrics(env, range) {
   if (!env.CF_ACCOUNT_ID || !env.CF_OBSERVABILITY_API_TOKEN) return { configured: false, error: "Cloudflare account analytics are not configured." };
-  const window = rangeWindow(range);
+  const window = rangeWindow(range, ACCOUNT_METRICS_CACHE_MS);
   const start = new Date(window.from);
   const end = new Date(window.to);
   const variables = {
@@ -101,12 +102,14 @@ async function cloudflareAccountMetrics(env, range) {
     dateStart: start.toISOString().slice(0, 10),
     dateEnd: end.toISOString().slice(0, 10),
     scriptName: env.CF_WORKER_NAME || "cloudcart-worker",
-    databaseId: env.CF_D1_DATABASE_ID || ""
+    databaseId: env.CF_D1_DATABASE_ID || "",
+    kvNamespaceId: env.CF_KV_NAMESPACE_ID || ""
   };
   const cacheKey = `graphql:${JSON.stringify(variables)}`;
-  const hit = cached(cacheKey);
+  const hit = cached(cacheKey, ACCOUNT_METRICS_CACHE_MS);
   if (hit) return hit;
-  const query = `query CloudCartOperationalMetrics($accountTag: string!, $datetimeStart: string, $datetimeEnd: string, $dateStart: Date, $dateEnd: Date, $scriptName: string, $databaseId: string) { viewer { accounts(filter: { accountTag: $accountTag }) { workersInvocationsAdaptive(limit: 1000, filter: { scriptName: $scriptName, datetime_geq: $datetimeStart, datetime_leq: $datetimeEnd }) { sum { requests errors subrequests } quantiles { cpuTimeP50 cpuTimeP99 } } d1AnalyticsAdaptiveGroups(limit: 1000, filter: { date_geq: $dateStart, date_leq: $dateEnd, databaseId: $databaseId }) { sum { readQueries writeQueries rowsRead rowsWritten } quantiles { queryBatchTimeMsP90 } } durableObjectsInvocationsAdaptiveGroups(limit: 1000, filter: { date_geq: $dateStart, date_leq: $dateEnd, scriptName: $scriptName }) { sum { requests responseBodySize } } } } }`;
+  const kvFields = variables.kvNamespaceId ? `kvOperationsAdaptiveGroups(limit: 1000, filter: { date_geq: $dateStart, date_leq: $dateEnd, namespaceId: $kvNamespaceId }) { sum { requests } quantiles { latencyMsP50 latencyMsP90 latencyMsP99 } dimensions { date actionType } } kvStorageAdaptiveGroups(limit: 100, filter: { date_geq: $dateStart, date_leq: $dateEnd, namespaceId: $kvNamespaceId }) { max { keyCount byteCount } dimensions { date } }` : "";
+  const query = `query CloudCartOperationalMetrics($accountTag: string!, $datetimeStart: string, $datetimeEnd: string, $dateStart: Date, $dateEnd: Date, $scriptName: string, $databaseId: string, $kvNamespaceId: string) { viewer { accounts(filter: { accountTag: $accountTag }) { workersInvocationsAdaptive(limit: 1000, filter: { scriptName: $scriptName, datetime_geq: $datetimeStart, datetime_leq: $datetimeEnd }) { sum { requests errors subrequests } quantiles { cpuTimeP50 cpuTimeP99 wallTimeP50 wallTimeP99 } dimensions { datetime } } d1AnalyticsAdaptiveGroups(limit: 1000, filter: { date_geq: $dateStart, date_leq: $dateEnd, databaseId: $databaseId }) { sum { readQueries writeQueries rowsRead rowsWritten queryBatchResponseBytes } quantiles { queryBatchTimeMsP90 } dimensions { date } } d1StorageAdaptiveGroups(limit: 100, filter: { date_geq: $dateStart, date_leq: $dateEnd, databaseId: $databaseId }) { max { databaseSizeBytes } dimensions { date } } ${kvFields} durableObjectsInvocationsAdaptiveGroups(limit: 1000, filter: { date_geq: $dateStart, date_leq: $dateEnd, scriptName: $scriptName }) { sum { requests responseBodySize } dimensions { date } } durableObjectsPeriodicGroups(limit: 1000, filter: { date_geq: $dateStart, date_leq: $dateEnd, scriptName: $scriptName }) { sum { cpuTime } quantiles { memoryUsageBytesP50 memoryUsageBytesP90 memoryUsageBytesP99 } dimensions { date } } durableObjectsStorageGroups(limit: 1000, filter: { date_geq: $dateStart, date_leq: $dateEnd, scriptName: $scriptName }) { max { storedBytes } dimensions { date } } } } }`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS);
   try {
@@ -121,7 +124,8 @@ async function cloudflareAccountMetrics(env, range) {
     return saveCache(cacheKey, {
       configured: true,
       data: body?.data?.viewer?.accounts?.[0] || null,
-      dateCoverage: `D1 and Durable Object analytics are grouped by UTC date (${variables.dateStart} through ${variables.dateEnd}), so sub-day selections include the full UTC date.`,
+      kvNamespaceConfigured: Boolean(variables.kvNamespaceId),
+      dateCoverage: `D1, KV, and Durable Object analytics are grouped by UTC date (${variables.dateStart} through ${variables.dateEnd}); sub-day selections include the full UTC date. Worker analytics use time buckets and can lag for recent minutes.`,
       fetchedAt: new Date().toISOString()
     });
   } catch {
@@ -232,22 +236,11 @@ export async function handleObservabilityRoute(request, env, _ctx, path, url) {
 
   if (path === "/api/observability/metrics" && request.method === "GET") {
     const selectedRange = url.searchParams.get("range");
-    const [result, accountMetrics] = await Promise.all([cloudflareQuery(env, {
-      view: "calculations", range: url.searchParams.get("range"), limit: 100,
-      parameters: {
-        datasets: ["cloudflare-workers"],
-        calculations: [
-          { operator: "count", alias: "events" },
-          { operator: "p95", alias: "wall_time_p95_ms", key: "$workers.wallTimeMs", keyType: "number" },
-          { operator: "p99", alias: "wall_time_p99_ms", key: "$workers.wallTimeMs", keyType: "number" }
-        ],
-        groupBys: [{ type: "string", value: "$cloudflare.binding.name" }]
-      }
-    }), cloudflareAccountMetrics(env, selectedRange)]);
-    if (telemetryFailure(result) && telemetryFailure(accountMetrics)) {
-      return response({ success: false, error: `${result.error} ${accountMetrics.error}`, configured: result.configured || accountMetrics.configured }, result.configured || accountMetrics.configured ? 502 : 503, request, env);
+    const accountMetrics = await cloudflareAccountMetrics(env, selectedRange);
+    if (telemetryFailure(accountMetrics)) {
+      return response({ success: false, error: accountMetrics.error, configured: accountMetrics.configured }, accountMetrics.configured ? 502 : 503, request, env);
     }
-    return response({ success: true, data: { nativeBindingActivity: result, accountMetrics }, fetchedAt: new Date().toISOString() }, 200, request, env);
+    return response({ success: true, data: { accountMetrics }, fetchedAt: new Date().toISOString() }, 200, request, env);
   }
 
   if (path === "/api/observability/probe" && request.method === "POST") {
