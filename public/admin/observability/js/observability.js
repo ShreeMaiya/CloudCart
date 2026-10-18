@@ -128,7 +128,7 @@ async function loadLogs() {
 
 async function loadMetrics() {
   const data = await fetchApi(`${API}/metrics?range=${encodeURIComponent(range())}`);
-  if (data?.error) return showError("metricsData", data.error);
+  if (data?.error) return showError("metricsRequestTable", data.error);
   const result = data?.data || {};
   const account = result.accountMetrics || {};
   const groups = account.data || {};
@@ -154,15 +154,6 @@ async function loadMetrics() {
     ${metricCard("D1 rows read", d1.rowsRead, `${d1.rowsWritten} rows written`)}
   </div><div class="card-sub metrics-note">Cloudflare account analytics. D1 and Durable Object totals are grouped by UTC date, so a sub-day range can include a full UTC day. Worker request totals include requests made by this observability dashboard. Sampled telemetry counts may be estimates. This panel makes no D1 or KV calls.</div>`;
   }
-  const native = result.nativeBindingActivity?.data;
-  const diagnostic = {
-    nativeBindingActivity: native || result.nativeBindingActivity?.error || "Unavailable",
-    accountAnalytics: groups,
-    accountAnalyticsError: account.error || null,
-    dateCoverage: account.dateCoverage || null,
-    refreshedAt: data.fetchedAt || account.fetchedAt || null
-  };
-  document.getElementById("metricsData").innerHTML = `<pre class="telemetry-json">${escapeHtml(JSON.stringify(diagnostic, null, 2))}</pre>`;
 }
 
 function metricCard(label, value, detail) {
@@ -174,7 +165,7 @@ async function loadTraces() {
   if (data?.error) return showError("tracesContainer", data.error);
   const traces = data?.data?.traces || [];
   if (!traces.length) return setEmpty("tracesContainer", "No recent traces were returned. Confirm tracing is enabled and check the sampling rate.");
-  document.getElementById("tracesContainer").innerHTML = `<table class="obs-table trace-row"><thead><tr><th>Trace ID</th><th>Transaction</th><th>Services</th><th>Duration</th><th>Spans</th><th>Started</th><th></th></tr></thead><tbody>${traces.map((trace, index) => `<tr><td class="mono">${escapeHtml(trace.traceId || "—")}</td><td>${escapeHtml(trace.rootTransactionName || trace.rootSpanName || "—")}</td><td>${escapeHtml((trace.service || []).join(", "))}</td><td>${trace.traceDurationMs == null ? "—" : `${Number(trace.traceDurationMs).toFixed(1)} ms`}</td><td>${trace.spans ?? "—"}</td><td>${formatTime(trace.traceStartMs)}</td><td><button class="btn btn-ghost" onclick="toggleDetail('trace-${index}')">Spans</button></td></tr><tr><td colspan="7"><pre class="log-detail" id="trace-${index}">${escapeHtml(JSON.stringify(trace, null, 2))}</pre></td></tr>`).join("")}</tbody></table>`;
+  document.getElementById("tracesContainer").innerHTML = `<table class="obs-table trace-row"><thead><tr><th>Trace ID</th><th>Transaction</th><th>Services</th><th>Duration</th><th>Spans</th><th>Started</th><th></th></tr></thead><tbody>${traces.map((trace, index) => `<tr><td class="mono">${escapeHtml(trace.traceId || "—")}</td><td>${escapeHtml(trace.rootTransactionName || trace.rootSpanName || "—")}</td><td>${escapeHtml((trace.service || []).join(", "))}</td><td>${trace.traceDurationMs == null ? "—" : `${Number(trace.traceDurationMs).toFixed(1)} ms`}</td><td>${trace.spans ?? "—"}</td><td>${formatTime(trace.traceStartMs)}</td><td><button class="btn btn-ghost" onclick="toggleDetail('trace-${index}')">Details</button></td></tr><tr><td colspan="7"><pre class="log-detail" id="trace-${index}">${escapeHtml(JSON.stringify(trace, null, 2))}</pre></td></tr>`).join("")}</tbody></table>`;
 }
 
 function parseSource(source) {
