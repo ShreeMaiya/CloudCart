@@ -15,21 +15,11 @@ function response(data, status = 200, request, env) {
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "no-store",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, X-Admin-Key",
+    "Access-Control-Allow-Headers": "Content-Type",
     "Vary": "Origin"
   };
   if (!origin || origin === allowedOrigin) headers["Access-Control-Allow-Origin"] = origin || allowedOrigin;
   return new Response(status === 204 ? null : JSON.stringify(data), { status, headers });
-}
-
-function authorized(request, env) {
-  const expected = env?.OBSERVABILITY_API_KEY;
-  if (!expected) return false;
-  const supplied = request.headers.get("X-Admin-Key") || "";
-  if (supplied.length !== expected.length) return false;
-  let diff = 0;
-  for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ supplied.charCodeAt(i);
-  return diff === 0;
 }
 
 function rangeWindow(range) {
@@ -202,8 +192,6 @@ async function probeDependencies(env) {
 export async function handleObservabilityRoute(request, env, _ctx, path, url) {
   if (!path.startsWith("/api/observability")) return null;
   if (request.method === "OPTIONS") return response(null, 204, request, env);
-  if (!authorized(request, env)) return response({ success: false, error: "Unauthorized or observability access is not configured." }, 401, request, env);
-
   if (path === "/api/observability/health" && request.method === "GET") {
     const services = url.searchParams.get("probe") === "1" ? await probeDependencies(env) : healthSnapshot(env, request);
     const statuses = services.map(s => s.status);

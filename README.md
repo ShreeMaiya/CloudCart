@@ -88,11 +88,11 @@ The workflow uses these two existing **repository secrets** and installs the obs
 | GitHub secret | Purpose |
 | --- | --- |
 | `CLOUDFLARE_API_TOKEN` | Your existing deploy token, also used to query Cloudflare telemetry. It needs Workers Observability Write and Account Analytics Read permissions in addition to the permissions needed for deployment. |
-| `OBSERVABILITY_API_KEY` | Your existing observability dashboard/API access key. |
+| `OBSERVABILITY_API_KEY` | Existing GitHub secret retained for later; the current dashboard does not require it. |
 
-The workflow reuses your existing `CLOUDFLARE_ACCOUNT_ID` as a Worker variable and your existing `CLOUDFLARE_API_TOKEN` for both deployment and Cloudflare telemetry queries. The admin page has no password gate. The observability dashboard asks for `OBSERVABILITY_API_KEY` and keeps it in the current browser session. The Cloudflare API token stays in Worker secrets and is never sent to browser code. `scripts/setup.js` fills `CF_WORKER_NAME` and `CF_D1_DATABASE_ID` in Wrangler configuration when it provisions resources; for manual provisioning, set those variables to the deployed Worker name and D1 database UUID.
+The workflow reuses your existing `CLOUDFLARE_ACCOUNT_ID` as a Worker variable and your existing `CLOUDFLARE_API_TOKEN` for both deployment and Cloudflare telemetry queries. Neither admin page currently has a password prompt. Observability API routes are open, so anyone who can reach the Worker can query its telemetry; authentication can be added later. The Cloudflare API token stays in Worker secrets and is never sent to browser code. `scripts/setup.js` fills `CF_WORKER_NAME` and `CF_D1_DATABASE_ID` in Wrangler configuration when it provisions resources; for manual provisioning, set those variables to the deployed Worker name and D1 database UUID.
 
-After deployment, open **Admin** without a password prompt. Open **Observability** and enter the value of `OBSERVABILITY_API_KEY` when prompted. The dashboard auto-refresh is off by default; each view is queried on demand and cached briefly in Worker memory.
+After deployment, open **Admin** or **Observability** directly without a password prompt. The dashboard auto-refresh is off by default; each view is queried on demand and cached briefly in Worker memory.
 
 ### Health and quota behavior
 

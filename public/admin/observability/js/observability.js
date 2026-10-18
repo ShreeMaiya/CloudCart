@@ -1,10 +1,8 @@
 // Live Cloudflare-native observability dashboard. Telemetry is queried on demand;
 // nothing is written to this project's D1 or KV for observability.
 const API = "/api/observability";
-const KEY_NAME = "cloudcart-observability-key";
 let currentTab = "health";
 let refreshTimer = null;
-let promptInProgress = false;
 
 document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll(".tab-btn").forEach(button => button.addEventListener("click", () => {
@@ -15,10 +13,6 @@ document.addEventListener("DOMContentLoaded", () => {
   }));
   document.getElementById("refreshBtn").addEventListener("click", () => loadTab(currentTab));
   document.getElementById("probeBtn").addEventListener("click", runHealthCheck);
-  document.getElementById("signOutBtn").addEventListener("click", () => {
-    sessionStorage.removeItem(KEY_NAME);
-    location.reload();
-  });
   document.getElementById("rangeSelect").addEventListener("change", () => loadTab(currentTab));
   document.getElementById("autoRefreshSelect").addEventListener("change", event => {
     clearInterval(refreshTimer);
@@ -40,23 +34,11 @@ function loadTab(tab) {
 
 function range() { return document.getElementById("rangeSelect").value; }
 
-async function fetchApi(path, options = {}, retryAuth = true) {
+async function fetchApi(path, options = {}) {
   const headers = new Headers(options.headers || {});
-  let key = sessionStorage.getItem(KEY_NAME);
-  if (!key && retryAuth && !promptInProgress) {
-    promptInProgress = true;
-    key = window.prompt("Enter the observability dashboard key configured as OBSERVABILITY_API_KEY:") || "";
-    promptInProgress = false;
-    if (key) sessionStorage.setItem(KEY_NAME, key);
-  }
-  if (key) headers.set("X-Admin-Key", key);
   try {
     const res = await fetch(path, { ...options, headers, cache: "no-store" });
     const body = await res.json().catch(() => ({}));
-    if (res.status === 401 && retryAuth) {
-      sessionStorage.removeItem(KEY_NAME);
-      return fetchApi(path, options, false);
-    }
     if (!res.ok || body.success === false) throw new Error(body.error || `Request failed (${res.status})`);
     return body.data;
   } catch (error) {
