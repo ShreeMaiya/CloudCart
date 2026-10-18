@@ -187,6 +187,9 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 
 /* ── Traces ── */
 .trace-row td { font-family: var(--mono); font-size: 0.78rem; }
+.trace-filters { justify-content: space-between; }
+.trace-filters label { display: inline-flex; align-items: center; gap: 0.45rem; cursor: pointer; }
+.trace-filters input { accent-color: var(--accent); }
 .trace-detail { padding: 0; }
 .waterfall-wrap { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.1rem; margin-bottom: 1.5rem; }
 .waterfall-title { font-size: 0.85rem; font-weight: 600; margin-bottom: 0.75rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }

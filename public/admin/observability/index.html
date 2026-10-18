@@ -118,10 +118,11 @@
 
   <!-- ── TRACES ── -->
   <section class="tab-view" id="view-traces">
-    <div class="log-filters">
-      <span class="text-muted">Cloudflare-native sampled traces · use Refresh to reload</span>
+    <div class="log-filters trace-filters">
+      <span class="text-muted">Cloudflare-native traces · application requests shown first</span>
+      <label class="text-muted"><input id="includeObservabilityTraces" type="checkbox"> Include dashboard telemetry requests</label>
     </div>
-    <div class="card"><div class="card-sub">Open a trace to view its sampled service spans in time order. Bars show recorded elapsed time; service-level timing appears only when Cloudflare includes it. Long durations can reflect an open WebSocket connection.</div></div>
+    <div class="card"><div class="card-sub">Open a trace to view service spans in time order. Trace sampling is set to 100% for this demo; Cloudflare Free can stop ingesting after its daily event limit, and some binding timings may be unavailable. Long durations can reflect an open WebSocket connection.</div></div>
 
     <div class="obs-table-wrap" id="tracesContainer">
       <div class="empty-state">⟳ Loading traces…</div>

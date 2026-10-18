@@ -158,7 +158,7 @@ redact_query_string = true
 
 [observability.traces]
 enabled = true
-head_sampling_rate = 0.1
+head_sampling_rate = 1.0
 redact_query_string = true
 
 # Enable Smart Placement to run Worker close to D1 and minimize cross-region query RTT

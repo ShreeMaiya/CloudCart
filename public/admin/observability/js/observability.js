@@ -14,6 +14,9 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("refreshBtn").addEventListener("click", () => loadTab(currentTab));
   document.getElementById("probeBtn").addEventListener("click", runHealthCheck);
   document.getElementById("rangeSelect").addEventListener("change", () => loadTab(currentTab));
+  document.getElementById("includeObservabilityTraces").addEventListener("change", () => {
+    if (currentTab === "traces") loadTraces();
+  });
   document.getElementById("autoRefreshSelect").addEventListener("change", event => {
     clearInterval(refreshTimer);
     const interval = Number(event.target.value);
@@ -184,10 +187,18 @@ async function loadTraces(focusTraceId = null) {
   const data = await fetchApi(`${API}/traces?range=${encodeURIComponent(range())}&limit=80`);
   if (data?.error) return showError("tracesContainer", data.error);
   const allTraces = data?.data?.traces || [];
-  const traces = focusTraceId ? allTraces.filter(trace => trace.traceId === focusTraceId) : allTraces;
+  const includeInternal = document.getElementById("includeObservabilityTraces")?.checked;
+  const appTraces = allTraces.filter(trace => !isObservabilityRequest(trace));
+  const visibleTraces = includeInternal ? allTraces : appTraces;
+  const traces = focusTraceId ? allTraces.filter(trace => trace.traceId === focusTraceId) : visibleTraces;
   if (focusTraceId && !traces.length) return setEmpty("tracesContainer", "No matching sampled trace was returned for this request. Traces are sampled, so this request may have no trace record.");
-  if (!traces.length) return setEmpty("tracesContainer", "No recent traces were returned. Confirm tracing is enabled and check the sampling rate.");
+  if (!traces.length) return setEmpty("tracesContainer", allTraces.length ? "Only dashboard observability requests were returned in this time range. Try a wider range or enable “Include dashboard telemetry requests”." : "No recent traces were returned. Confirm tracing is enabled and check the selected time range or Cloudflare’s daily ingestion limit.");
   document.getElementById("tracesContainer").innerHTML = `<table class="obs-table trace-row"><thead><tr><th>Trace ID</th><th>Transaction</th><th>Services</th><th>Duration</th><th>Started</th><th></th></tr></thead><tbody>${traces.map((trace, index) => `<tr><td class="mono">${escapeHtml(trace.traceId || "—")}</td><td>${escapeHtml(trace.rootTransactionName || trace.rootSpanName || "—")}</td><td>${escapeHtml(Array.isArray(trace.service) ? trace.service.join(", ") : trace.service || "—")}</td><td>${trace.traceDurationMs == null ? "—" : `${Number(trace.traceDurationMs).toFixed(1)} ms`}</td><td>${formatTime(trace.traceStartMs)}</td><td><button class="btn btn-ghost" onclick="openTraceDetails(${index}, '${escapeHtml(trace.traceId || "")}')">Waterfall</button></td></tr><tr><td colspan="6"><div class="log-detail trace-detail" id="trace-${index}"></div></td></tr>`).join("")}</tbody></table>`;
+}
+
+function isObservabilityRequest(trace) {
+  const transaction = String(trace?.rootTransactionName || trace?.rootSpanName || "").toLowerCase();
+  return transaction.includes("/api/observability/");
 }
 
 async function openTraceDetails(index, traceId) {
