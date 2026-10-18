@@ -90,8 +90,8 @@ async function cloudflareQuery(env, { view, range, limit, parameters = {} }) {
   }
 }
 
-async function cloudflareAccountMetrics(env, range) {
-  if (!env.CF_ACCOUNT_ID || !env.CF_OBSERVABILITY_API_TOKEN) return { configured: false, error: "Cloudflare account analytics are not configured." };
+async function cloudflareProjectMetrics(env, range) {
+  if (!env.CF_ACCOUNT_ID || !env.CF_OBSERVABILITY_API_TOKEN) return { configured: false, error: "Cloudflare project metrics are not configured." };
   const window = rangeWindow(range, ACCOUNT_METRICS_CACHE_MS);
   const start = new Date(window.from);
   const end = new Date(window.to);
@@ -109,7 +109,7 @@ async function cloudflareAccountMetrics(env, range) {
   const hit = cached(cacheKey, ACCOUNT_METRICS_CACHE_MS);
   if (hit) return hit;
   const kvFields = variables.kvNamespaceId ? `kvOperationsAdaptiveGroups(limit: 1000, filter: { date_geq: $dateStart, date_leq: $dateEnd, namespaceId: $kvNamespaceId }) { sum { requests } quantiles { latencyMsP50 latencyMsP90 latencyMsP99 } dimensions { date actionType } } kvStorageAdaptiveGroups(limit: 100, filter: { date_geq: $dateStart, date_leq: $dateEnd, namespaceId: $kvNamespaceId }) { max { keyCount byteCount } dimensions { date } }` : "";
-  const query = `query CloudCartOperationalMetrics($accountTag: string!, $datetimeStart: string, $datetimeEnd: string, $dateStart: Date, $dateEnd: Date, $scriptName: string, $databaseId: string, $kvNamespaceId: string) { viewer { accounts(filter: { accountTag: $accountTag }) { workersInvocationsAdaptive(limit: 1000, filter: { scriptName: $scriptName, datetime_geq: $datetimeStart, datetime_leq: $datetimeEnd }) { sum { requests errors subrequests } quantiles { cpuTimeP50 cpuTimeP99 wallTimeP50 wallTimeP99 } dimensions { datetime } } d1AnalyticsAdaptiveGroups(limit: 1000, filter: { date_geq: $dateStart, date_leq: $dateEnd, databaseId: $databaseId }) { sum { readQueries writeQueries rowsRead rowsWritten queryBatchResponseBytes } quantiles { queryBatchTimeMsP90 } dimensions { date } } d1StorageAdaptiveGroups(limit: 100, filter: { date_geq: $dateStart, date_leq: $dateEnd, databaseId: $databaseId }) { max { databaseSizeBytes } dimensions { date } } ${kvFields} durableObjectsInvocationsAdaptiveGroups(limit: 1000, filter: { date_geq: $dateStart, date_leq: $dateEnd, scriptName: $scriptName }) { sum { requests responseBodySize } dimensions { date } } durableObjectsPeriodicGroups(limit: 1000, filter: { date_geq: $dateStart, date_leq: $dateEnd, scriptName: $scriptName }) { sum { cpuTime } quantiles { memoryUsageBytesP50 memoryUsageBytesP90 memoryUsageBytesP99 } dimensions { date } } durableObjectsStorageGroups(limit: 1000, filter: { date_geq: $dateStart, date_leq: $dateEnd, scriptName: $scriptName }) { max { storedBytes } dimensions { date } } } } }`;
+  const query = `query CloudCartOperationalMetrics($accountTag: string!, $datetimeStart: string, $datetimeEnd: string, $dateStart: Date, $dateEnd: Date, $scriptName: string, $databaseId: string, $kvNamespaceId: string) { viewer { accounts(filter: { accountTag: $accountTag }) { workersInvocationsAdaptive(limit: 1000, filter: { scriptName: $scriptName, datetime_geq: $datetimeStart, datetime_leq: $datetimeEnd }) { sum { requests errors subrequests } quantiles { cpuTimeP50 cpuTimeP99 wallTimeP50 wallTimeP99 } dimensions { datetime } } d1AnalyticsAdaptiveGroups(limit: 1000, filter: { date_geq: $dateStart, date_leq: $dateEnd, databaseId: $databaseId }) { sum { readQueries writeQueries rowsRead rowsWritten queryBatchResponseBytes } quantiles { queryBatchTimeMsP90 } dimensions { date } } d1StorageAdaptiveGroups(limit: 100, filter: { date_geq: $dateStart, date_leq: $dateEnd, databaseId: $databaseId }) { max { databaseSizeBytes } dimensions { date } } ${kvFields} durableObjectsInvocationsAdaptiveGroups(limit: 1000, filter: { date_geq: $dateStart, date_leq: $dateEnd, scriptName: $scriptName }) { sum { requests responseBodySize } dimensions { date } } } } }`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS);
   try {
@@ -236,11 +236,11 @@ export async function handleObservabilityRoute(request, env, _ctx, path, url) {
 
   if (path === "/api/observability/metrics" && request.method === "GET") {
     const selectedRange = url.searchParams.get("range");
-    const accountMetrics = await cloudflareAccountMetrics(env, selectedRange);
-    if (telemetryFailure(accountMetrics)) {
-      return response({ success: false, error: accountMetrics.error, configured: accountMetrics.configured }, accountMetrics.configured ? 502 : 503, request, env);
+    const projectMetrics = await cloudflareProjectMetrics(env, selectedRange);
+    if (telemetryFailure(projectMetrics)) {
+      return response({ success: false, error: projectMetrics.error, configured: projectMetrics.configured }, projectMetrics.configured ? 502 : 503, request, env);
     }
-    return response({ success: true, data: { accountMetrics }, fetchedAt: new Date().toISOString() }, 200, request, env);
+    return response({ success: true, data: { projectMetrics }, fetchedAt: new Date().toISOString() }, 200, request, env);
   }
 
   if (path === "/api/observability/probe" && request.method === "POST") {

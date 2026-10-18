@@ -63,21 +63,19 @@ async function runHealthCheck() {
 }
 
 function renderHealth(data) {
-  const services = data?.services || [];
+  const services = (data?.services || []).filter(item => !["UNKNOWN", "NOT_CONFIGURED"].includes(item.status));
   const healthy = services.filter(item => item.status === "HEALTHY").length;
   const degraded = services.filter(item => item.status === "DEGRADED").length;
   const down = services.filter(item => item.status === "DOWN").length;
-  const unknown = services.filter(item => ["UNKNOWN", "NOT_CONFIGURED"].includes(item.status)).length;
-  const status = down ? "DOWN" : degraded ? "DEGRADED" : unknown ? "UNKNOWN" : healthy ? "HEALTHY" : "UNKNOWN";
+  const status = down ? "DOWN" : degraded ? "DEGRADED" : healthy ? "HEALTHY" : "UNKNOWN";
   updateStatus(status);
   document.getElementById("healthSub").textContent = `${data?.probe ? "Active probes plus current Worker status" : "Verified status; no dependency calls"} · ${formatTime(data?.timestamp)}`;
   document.getElementById("hHealthy").textContent = healthy;
   document.getElementById("hDegraded").textContent = degraded;
   document.getElementById("hFailed").textContent = down;
-  document.getElementById("hUnknown").textContent = unknown;
   document.getElementById("hTotal").textContent = services.length;
   document.getElementById("serviceCards").innerHTML = services.map(service => {
-  const cssStatus = ["UNKNOWN", "NOT_CONFIGURED"].includes(service.status) ? "unknown" : service.status.toLowerCase();
+    const cssStatus = service.status.toLowerCase();
     return `<article class="service-card ${cssStatus}">
       <div class="svc-header"><div><div class="svc-name">${escapeHtml(service.name)}</div><div class="svc-tier">${escapeHtml(service.tier)}</div></div><span class="badge badge-${badgeClass(service.status)}">${escapeHtml(service.status)}</span></div>
       <div class="svc-description">${escapeHtml(service.detail || "")}</div>
@@ -143,10 +141,10 @@ async function loadMetrics() {
   const data = await fetchApi(`${API}/metrics?range=${encodeURIComponent(range())}`);
   if (data?.error) return showError("metricsRequestTable", data.error);
   const result = data || {};
-  const account = result.accountMetrics || {};
-  const groups = account.data || {};
-  if (account.error) {
-    document.getElementById("metricsRequestTable").innerHTML = `<div class="empty-state">${escapeHtml(account.error)}</div>`;
+  const project = result.projectMetrics || {};
+  const groups = project.data || {};
+  if (project.error) {
+    document.getElementById("metricsRequestTable").innerHTML = `<div class="empty-state">${escapeHtml(project.error)}</div>`;
   } else {
     const workerRows = groups.workersInvocationsAdaptive || [];
     const d1Rows = groups.d1AnalyticsAdaptiveGroups || [];
@@ -154,8 +152,6 @@ async function loadMetrics() {
     const kvRows = groups.kvOperationsAdaptiveGroups || [];
     const kvStorageRows = groups.kvStorageAdaptiveGroups || [];
     const doRows = groups.durableObjectsInvocationsAdaptiveGroups || [];
-    const doPeriodicRows = groups.durableObjectsPeriodicGroups || [];
-    const doStorageRows = groups.durableObjectsStorageGroups || [];
     const total = (rows, field) => rows.reduce((sum, row) => sum + (Number(row?.sum?.[field]) || 0), 0);
     const rowsExist = rows => rows.length > 0;
     const sortedByDate = rows => [...rows].sort((a, b) => String(a?.dimensions?.datetime || a?.dimensions?.date || "").localeCompare(String(b?.dimensions?.datetime || b?.dimensions?.date || "")));
@@ -191,19 +187,15 @@ async function loadMetrics() {
     const d1Latest = mostRecent(d1Rows);
     const kvReadRows = kvRows.filter(row => String(row?.dimensions?.actionType || "").toLowerCase() === "read");
     const kvLatest = mostRecent(kvReadRows);
-    const doLatestPeriodic = mostRecent(doPeriodicRows);
     const d1LatestStorage = mostRecent(d1StorageRows);
     const kvLatestStorage = mostRecent(kvStorageRows);
-    const doLatestStorage = mostRecent(doStorageRows);
     const workerErrorRate = total(workerRows, "requests") ? `${(total(workerRows, "errors") / total(workerRows, "requests") * 100).toFixed(2)}% of invocations` : "No request groups";
     const kvCounts = ["read", "write", "delete", "list"].map(action => `${action}: ${formatNumber(sumBy(kvRows, "actionType", action))}`).join(" · ");
     const d1StorageBytes = d1LatestStorage?.max?.databaseSizeBytes;
     const kvBytes = kvLatestStorage?.max?.byteCount;
     const kvKeys = kvLatestStorage?.max?.keyCount;
-    const doBytes = doLatestStorage?.max?.storedBytes;
-    const doCpu = total(doPeriodicRows, "cpuTime");
     const missing = [!rowsExist(workerRows) && "Worker", !rowsExist(d1Rows) && "D1", !rowsExist(kvRows) && "KV", !rowsExist(doRows) && "Durable Objects"].filter(Boolean);
-    const coverage = account.dateCoverage || "Cloudflare account analytics can be delayed or sampled.";
+    const coverage = project.dateCoverage || "Metrics are filtered to the configured CloudCart Worker, D1 database, and KV namespace. Cloudflare may delay or sample analytics.";
 
     document.getElementById("metricsRequestTable").innerHTML = [
       section("Worker runtime", "workerMetrics", `<div class="grid-3">
@@ -229,14 +221,11 @@ async function loadMetrics() {
         ${card("Stored data", formatBytes(kvBytes == null ? null : Number(kvBytes)), "Latest available daily namespace sample")}
         ${card("Stored keys", formatNumber(kvKeys == null ? null : Number(kvKeys)), "Latest available daily namespace sample")}
       </div>${chart(kvRows.filter(row => String(row?.dimensions?.actionType || "").toLowerCase() === "read"), "requests", "KV reads per day", { color: "#8b5cf6" })}${chart(kvRows.filter(row => String(row?.dimensions?.actionType || "").toLowerCase() === "write"), "requests", "KV writes per day", { color: "#f59e0b" })}`),
-      section("Inventory Durable Object", "doMetrics", `<div class="grid-3">
-        ${card("Requests", rowsExist(doRows) ? formatNumber(total(doRows, "requests")) : "No data", "Durable Object invocation analytics")}
-        ${card("CPU time", rowsExist(doPeriodicRows) ? formatMs(doCpu) : "No data", "Total reported periodic CPU time")}
-        ${card("Memory P90", formatBytes(quantileFrom(doLatestPeriodic, "memoryUsageBytesP90")), "Isolate memory; sampled daily")}
-        ${card("Response bytes", rowsExist(doRows) ? formatBytes(total(doRows, "responseBodySize")) : "No data", "Durable Object response bodies")}
-        ${card("Stored bytes", formatBytes(doBytes == null ? null : Number(doBytes)), "Latest available daily storage sample")}
+      section("CloudCart Durable Object", "doMetrics", `<div class="grid-3">
+        ${card("Requests", rowsExist(doRows) ? formatNumber(total(doRows, "requests")) : "No data", "Filtered to the CloudCart Worker script")}
+        ${card("Response bytes", rowsExist(doRows) ? formatBytes(total(doRows, "responseBodySize")) : "No data", "Filtered to the CloudCart Worker script")}
       </div>${chart(doRows, "requests", "Durable Object requests per day", { color: "#06b6d4" })}`),
-      `<div class="card metrics-note">${escapeHtml(coverage)}${missing.length ? ` Missing data groups: ${escapeHtml(missing.join(", "))}. Missing means unavailable, not zero.` : ""}${account.kvNamespaceConfigured === false ? " KV analytics are omitted because the deployed KV namespace ID is not configured." : ""} This page reads Cloudflare analytics only; it makes no D1 or KV binding calls.</div>`
+      `<div class="card metrics-note">${escapeHtml(coverage)}${missing.length ? ` Missing data groups: ${escapeHtml(missing.join(", "))}. Missing means unavailable, not zero.` : ""}${project.kvNamespaceConfigured === false ? " KV analytics are omitted because the deployed KV namespace ID is not configured." : ""} This page reads Cloudflare analytics only; it makes no D1 or KV binding calls.</div>`
     ].join("");
   }
   document.getElementById("lastUpdated").textContent = `Updated ${new Date().toLocaleTimeString()}`;
