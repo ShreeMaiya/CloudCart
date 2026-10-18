@@ -14,9 +14,6 @@ export async function onRequest(context) {
   const forwardHeaders = new Headers(request.headers);
   forwardHeaders.set("Host", backendWorkerHost);
 
-  // Preserve WebSocket Upgrade if client is requesting /api/sync WebSocket
-  const isWebSocket = request.headers.get("Upgrade") === "websocket";
-
   return await fetch(targetUrl, {
     method: request.method,
     headers: forwardHeaders,

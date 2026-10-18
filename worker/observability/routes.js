@@ -136,7 +136,8 @@ async function cloudflareProjectMetrics(env, range) {
   }
 }
 
-function telemetryFailure(result) {
+// Returns the result object when it contains an error, null otherwise.
+function getTelemetryError(result) {
   return result?.error ? result : null;
 }
 
@@ -201,26 +202,101 @@ async function probeDependencies(env) {
   return results;
 }
 
+// Aggregate raw Cloudflare GraphQL group arrays into a single summary object.
+// Only fields that genuinely come from the API are included; absent data is null.
+function aggregateMetrics(groups) {
+  const workerRows = groups?.workersInvocationsAdaptive || [];
+  const d1Rows = groups?.d1AnalyticsAdaptiveGroups || [];
+  const d1StorageRows = groups?.d1StorageAdaptiveGroups || [];
+  const kvRows = groups?.kvOperationsAdaptiveGroups || [];
+  const doRows = groups?.durableObjectsInvocationsAdaptiveGroups || [];
+
+  const sumField = (rows, key) =>
+    rows.length ? rows.reduce((total, row) => total + (Number(row?.sum?.[key]) || 0), 0) : null;
+  const latestRow = rows =>
+    rows.length
+      ? [...rows].sort((a, b) =>
+          String(b?.dimensions?.date || b?.dimensions?.datetime || "").localeCompare(
+            String(a?.dimensions?.date || a?.dimensions?.datetime || "")
+          )
+        )[0]
+      : null;
+
+  // Workers — real-time invocation analytics from Cloudflare Workers Observability
+  const workerLatest = latestRow(workerRows);
+  const worker = workerRows.length
+    ? {
+        requests:        sumField(workerRows, "requests"),
+        errors:          sumField(workerRows, "errors"),
+        subrequests:     sumField(workerRows, "subrequests"),
+        cpuTimeP50Ms:    workerLatest?.quantiles?.cpuTimeP50 ?? null,
+        cpuTimeP99Ms:    workerLatest?.quantiles?.cpuTimeP99 ?? null,
+        wallTimeP50Ms:   workerLatest?.quantiles?.wallTimeP50 ?? null,
+        wallTimeP99Ms:   workerLatest?.quantiles?.wallTimeP99 ?? null
+      }
+    : null;
+
+  // D1 — UTC-day aggregate analytics from Cloudflare D1 Analytics API
+  const d1Latest = latestRow(d1Rows);
+  const d1StorageLatest = latestRow(d1StorageRows);
+  const d1 = d1Rows.length
+    ? {
+        readQueries:             sumField(d1Rows, "readQueries"),
+        writeQueries:            sumField(d1Rows, "writeQueries"),
+        rowsRead:                sumField(d1Rows, "rowsRead"),
+        rowsWritten:             sumField(d1Rows, "rowsWritten"),
+        queryBatchResponseBytes: sumField(d1Rows, "queryBatchResponseBytes"),
+        queryBatchTimeMsP90:     d1Latest?.quantiles?.queryBatchTimeMsP90 ?? null,
+        latestDate:              d1Latest?.dimensions?.date ?? null,
+        databaseSizeBytes:       d1StorageLatest?.max?.databaseSizeBytes ?? null,
+        storageSampleDate:       d1StorageLatest?.dimensions?.date ?? null
+      }
+    : null;
+
+  // KV — UTC-day aggregate analytics filtered by KV namespace ID
+  const kvByAction = actionType =>
+    kvRows
+      .filter(row => String(row?.dimensions?.actionType || "").toLowerCase() === actionType)
+      .reduce((total, row) => total + (Number(row?.sum?.requests) || 0), 0);
+  const kv = kvRows.length
+    ? {
+        totalRequests: sumField(kvRows, "requests"),
+        reads:         kvByAction("read"),
+        writes:        kvByAction("write"),
+        deletes:       kvByAction("delete"),
+        lists:         kvByAction("list"),
+        latencyP50Ms:  latestRow(kvRows)?.quantiles?.latencyMsP50 ?? null,
+        latencyP90Ms:  latestRow(kvRows)?.quantiles?.latencyMsP90 ?? null,
+        latencyP99Ms:  latestRow(kvRows)?.quantiles?.latencyMsP99 ?? null
+      }
+    : null;
+
+  // Durable Objects — UTC-day aggregate analytics filtered by Worker script name
+  const durableObjects = doRows.length
+    ? {
+        requests:          sumField(doRows, "requests"),
+        responseBodyBytes: sumField(doRows, "responseBodySize")
+      }
+    : null;
+
+  return { worker, d1, kv, durableObjects };
+}
+
 export async function handleObservabilityRoute(request, env, _ctx, path, url) {
   if (!path.startsWith("/api/observability")) return null;
   if (request.method === "OPTIONS") return response(null, 204, request, env);
+
   if (path === "/api/observability/health" && request.method === "GET") {
     const shouldProbe = url.searchParams.get("probe") === "1";
     const snapshot = healthSnapshot(env, request);
-    const services = shouldProbe
-      ? snapshot.map(service => {
-          const activeResult = probeCache.services?.find(item => item.id === service.id);
-          return activeResult && Date.now() - probeCache.at < 30_000
-            ? { ...activeResult, cached: true, signal: "Recent active probe", checkedAt: new Date(probeCache.at).toISOString() }
-            : service;
-        })
-      : snapshot;
+    // Await fresh probe results FIRST so the final services array is always up-to-date.
+    let services = snapshot;
     if (shouldProbe) {
       const activeResults = await probeDependencies(env);
-      for (const activeResult of activeResults) {
-        const index = services.findIndex(service => service.id === activeResult.id);
-        if (index >= 0) services[index] = activeResult;
-      }
+      services = snapshot.map(s => {
+        const probed = activeResults.find(r => r.id === s.id);
+        return probed ?? s;
+      });
     }
     const statuses = services.map(s => s.status);
     const overallStatus = statuses.includes("DOWN") ? "DOWN" : statuses.includes("DEGRADED") ? "DEGRADED" : statuses.includes("UNKNOWN") || statuses.includes("NOT_CONFIGURED") ? "UNKNOWN" : "HEALTHY";
@@ -228,20 +304,30 @@ export async function handleObservabilityRoute(request, env, _ctx, path, url) {
   }
 
   if (path === "/api/observability/logs" && request.method === "GET") {
-    // Group log lines by Worker invocation so the dashboard can present one
-    // request row with its related events and trace correlation metadata.
+    // Returns Worker invocations grouped by request ID. Each invocation includes
+    // its trace/span IDs (requires observability.traces = true in wrangler.toml).
     const result = await cloudflareQuery(env, { view: "invocations", range: url.searchParams.get("range"), limit: url.searchParams.get("limit"), parameters: { datasets: ["cloudflare-workers"] } });
-    if (telemetryFailure(result)) return response({ success: false, error: result.error, configured: result.configured }, result.configured ? 502 : 503, request, env);
+    if (getTelemetryError(result)) return response({ success: false, error: result.error, configured: result.configured }, result.configured ? 502 : 503, request, env);
     return response({ success: true, data: result }, 200, request, env);
   }
 
   if (path === "/api/observability/metrics" && request.method === "GET") {
     const selectedRange = url.searchParams.get("range");
     const projectMetrics = await cloudflareProjectMetrics(env, selectedRange);
-    if (telemetryFailure(projectMetrics)) {
+    if (getTelemetryError(projectMetrics)) {
       return response({ success: false, error: projectMetrics.error, configured: projectMetrics.configured }, projectMetrics.configured ? 502 : 503, request, env);
     }
-    return response({ success: true, data: { projectMetrics }, fetchedAt: new Date().toISOString() }, 200, request, env);
+    // summary contains only fields that are genuinely populated from Cloudflare APIs.
+    // Absent data (unconfigured service, no rows for range) is explicitly null — never fabricated.
+    const summary = aggregateMetrics(projectMetrics.data);
+    return response({
+      success: true,
+      data: {
+        projectMetrics,
+        summary
+      },
+      fetchedAt: new Date().toISOString()
+    }, 200, request, env);
   }
 
   if (path === "/api/observability/probe" && request.method === "POST") {
