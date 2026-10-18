@@ -157,8 +157,7 @@ async function loadMetrics() {
   const sections = [
     metricSection("CloudCart Worker", [
       ["Requests", workerRows.length ? number(sum(workerRows, "requests")) : "No data", "Filtered by CloudCart Worker script"],
-      ["Runtime errors", workerRows.length ? number(sum(workerRows, "errors")) : "No data", "Worker invocation errors"],
-      ["CPU P99", latest(workerRows)?.quantiles?.cpuTimeP99 == null ? "No data" : `${Number(latest(workerRows).quantiles.cpuTimeP99).toFixed(1)} ms`, "Latest available Worker time bucket"]
+      ["Runtime errors", workerRows.length ? number(sum(workerRows, "errors")) : "No data", "Worker invocation errors"]
     ]),
     metricSection("CloudCart D1 database", [
       ["Read queries", d1Rows.length ? number(sum(d1Rows, "readQueries")) : "No data", "UTC-day D1 analytics"],
