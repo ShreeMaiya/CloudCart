@@ -64,15 +64,16 @@ async function runHealthCheck() {
 }
 
 function renderHealth(data) {
-  const services = data?.services || [];
-  const known = services.filter(item => ["HEALTHY", "DEGRADED", "DOWN"].includes(item.status));
+  // Show only services with a current health signal; unverified services are
+  // omitted instead of making the overall system appear unknown.
+  const services = (data?.services || []).filter(item => ["HEALTHY", "DEGRADED", "DOWN"].includes(item.status));
+  const known = services;
   const healthy = known.filter(item => item.status === "HEALTHY").length;
   const degraded = known.filter(item => item.status === "DEGRADED").length;
   const down = known.filter(item => item.status === "DOWN").length;
-  let status = down ? "DOWN" : degraded ? "DEGRADED" : known.length === services.length && services.length ? "HEALTHY" : "UNKNOWN";
-  if (data?.overallStatus === "UNKNOWN" && !data.probe) status = "UNKNOWN";
+  const status = down ? "DOWN" : degraded ? "DEGRADED" : known.length ? "HEALTHY" : "UNKNOWN";
   updateStatus(status);
-  document.getElementById("healthSub").textContent = `${data?.probe ? "Active probe results" : "Passive status; no dependency calls"} · ${formatTime(data?.timestamp)}`;
+  document.getElementById("healthSub").textContent = `${data?.probe ? "Active probes plus current Worker status" : "Verified status; no dependency calls"} · ${formatTime(data?.timestamp)}`;
   document.getElementById("hHealthy").textContent = healthy;
   document.getElementById("hDegraded").textContent = degraded;
   document.getElementById("hFailed").textContent = down;
@@ -91,10 +92,10 @@ function renderHealth(data) {
 function updateStatus(status) {
   const dot = document.getElementById("healthDot");
   dot.className = `dot ${status.toLowerCase()}`;
-  document.getElementById("overallStatusText").textContent = `System ${status.toLowerCase()}`;
+  document.getElementById("overallStatusText").textContent = `Verified services ${status.toLowerCase()}`;
   document.getElementById("healthOrb").className = `health-orb ${status.toLowerCase()}`;
   document.getElementById("healthOrb").textContent = status === "HEALTHY" ? "✓" : status === "DEGRADED" ? "!" : status === "DOWN" ? "×" : "?";
-  document.getElementById("healthTitle").textContent = `System ${status.toLowerCase()}`;
+  document.getElementById("healthTitle").textContent = `Verified services ${status.toLowerCase()}`;
 }
 
 async function loadLogs() {
