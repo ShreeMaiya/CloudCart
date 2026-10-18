@@ -305,8 +305,9 @@ await runWrangler([
   "--config", resolve("wrangler.toml"),
 ]);
 
-// Observability queries reuse the deployment token with the required permissions.
-await putWranglerSecret("CLOUDFLARE_API_TOKEN", API_TOKEN);
+// Observability uses a restricted read/query token and a separate dashboard key.
+await putWranglerSecret("OBSERVABILITY_API_KEY", process.env.OBSERVABILITY_API_KEY);
+await putWranglerSecret("CF_OBSERVABILITY_API_TOKEN", process.env.CF_OBSERVABILITY_API_TOKEN);
 
 // Step 3: Ensure Cloudflare Pages project with Service Binding
 console.log("\n⚡ Provisioning Cloudflare Pages project with Service Binding...");

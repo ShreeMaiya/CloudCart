@@ -4,22 +4,14 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Cloudflare local state and secrets
+# Wrangler local development state and logs (contains local SQLite D1 & KV state)
 .wrangler/
 .cloudflare/
-.dev.vars
-.dev.vars.*
 
-# Environment variables and local overrides
+# Environment variables
 .env
 .env.*
 !.env.example
-*.local
-
-# Logs and generated output
-*.log
-coverage/
-dist/
 
 # OS and Editor files
 .DS_Store
