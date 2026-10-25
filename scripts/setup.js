@@ -322,9 +322,9 @@ await runWrangler([
   "--config", resolve("wrangler.toml"),
 ]);
 
-// Observability uses a restricted read/query token and a separate dashboard key.
-await putWranglerSecret("OBSERVABILITY_API_KEY", process.env.OBSERVABILITY_API_KEY);
-await putWranglerSecret("CF_OBSERVABILITY_API_TOKEN", process.env.CF_OBSERVABILITY_API_TOKEN);
+// Store CLOUDFLARE_API_TOKEN as a Worker secret so the observability routes
+// can call the Cloudflare API server-side without any extra secret name.
+await putWranglerSecret("CLOUDFLARE_API_TOKEN", API_TOKEN);
 
 // Step 3: Fetch the deployed Worker's subdomain (e.g. "myaccount" from "cloudcart-worker.myaccount.workers.dev")
 // Used to set CLOUDCART_WORKER_HOST on Pages as the HTTP fallback, in case the Service Binding is not yet active.

@@ -1,10 +1,10 @@
-# ☁️ CloudCart — Cloudflare-Native E-Commerce Platform
+# CloudCart — Cloudflare-Native E-Commerce Platform
 
-A production-grade, full-stack e-commerce platform built with **HTML, Vanilla CSS, and JavaScript**, architected natively on the **Cloudflare Developer Platform** using **Pages + Workers + Service Bindings + D1 + KV + Durable Objects**.
+A production-grade, full-stack e-commerce platform built with **HTML, CSS, and JavaScript**, architected natively on the **Cloudflare Developer Platform** using **Pages + Workers + Service Bindings + D1 + KV + Durable Objects**.
 
 ---
 
-## 📐 Architecture
+## Architecture
 
 ```mermaid
 flowchart TD
@@ -45,35 +45,34 @@ flowchart TD
 
 ---
 
-## ✨ Features
+## Features
 
-### 🛒 Customer Storefront (`/`)
+### Customer Storefront (`/`)
 - Dark-mode tech storefront with responsive product grid, live search, and category filters.
 - Product catalog loaded from D1 with ₹ (Indian Rupee) pricing.
 - **Real-time stock badges** (`In Stock` / `Only X Left!` / `Out of Stock`) pushed via WebSocket — no page refresh needed.
 - Slide-in cart drawer with quantity controls, persisted to Cloudflare KV across sessions.
 - Customer feedback modal with 1–5 star rating.
 
-### 🛠️ Admin Portal (`/admin/`)
+### Admin Portal (`/admin/`)
 - Live dashboard metrics: Active Products, Total Inventory, Connected Users, Total Revenue.
 - Inline product price editor, stock adjust (`+`/`-`), and soft-delete.
 - **Add Product** modal — inserts directly into D1 and broadcasts to all live clients.
 - Recent orders table and customer reviews panel, updated in real time.
 
-### 📡 Observability Dashboard (`/admin/observability/`)
+### Observability Dashboard (`/admin/observability/`)
 - Queries Cloudflare Workers Observability for live logs, metrics, and traces.
 - Health check probes: D1 `SELECT 1`, KV read, and Durable Object ping.
 - No historical telemetry store — Cloudflare retains data per its standard retention policy.
 
 ---
 
-## 🚀 Deployment Guide (GitHub + Cloudflare)
+## Deployment Guide (GitHub + Cloudflare)
 
 ### Prerequisites
 
 1. **A Cloudflare account** — [Sign up free](https://dash.cloudflare.com/sign-up).
 2. **A GitHub account** — to push this repository.
-3. **Node.js ≥ 18** — only needed for local development; GitHub Actions handles CI automatically.
 
 ---
 
@@ -124,13 +123,14 @@ git push -u origin main
 ### Step 4 — Add GitHub Actions Secrets
 
 1. In your GitHub repository, navigate to **Settings → Secrets and variables → Actions**.
-2. Click **New repository secret** and add each of the following:
+2. Click **New repository secret** and add **both** of the following:
 
-   | Secret Name | Value | Required? |
-   | :--- | :--- | :--- |
-   | `CLOUDFLARE_API_TOKEN` | The API token from Step 1 | ✅ Required |
-   | `CLOUDFLARE_ACCOUNT_ID` | Your Account ID from Step 2 | ✅ Required |
-   | `OBSERVABILITY_API_KEY` | Any random string (e.g., `openssl rand -hex 32`). Reserved for future auth. | Recommended |
+   | Secret Name | Value |
+   | :--- | :--- |
+   | `CLOUDFLARE_API_TOKEN` | The API token you created in Step 1. |
+   | `CLOUDFLARE_ACCOUNT_ID` | Your Account ID from Step 2. |
+
+   That's it — **only 2 secrets are needed.** Everything else is derived automatically by the deployment script.
 
 ---
 
@@ -151,8 +151,6 @@ git push -u origin main
    - **Configures** the Cloudflare Pages project (`cloudcart`) with the `API_WORKER` Service Binding.
    - **Deploys** the frontend to Cloudflare Pages.
 
-> **First deploy:** ~2 minutes. Subsequent deploys: ~45 seconds (resources are reused).
-
 ---
 
 ### Step 6 — Verify the Deployment
@@ -164,72 +162,6 @@ After the workflow completes, open these URLs:
 | `https://cloudcart.pages.dev` | Customer storefront with live product catalog |
 | `https://cloudcart.pages.dev/admin/` | Admin portal with live metrics & inventory |
 | `https://cloudcart.pages.dev/admin/observability/` | Cloudflare-native observability dashboard |
-
----
-
-## 💻 Local Development
-
-Run the Worker backend locally using [Wrangler](https://developers.cloudflare.com/workers/wrangler/):
-
-```bash
-# 1. Install dependencies
-npm install
-
-# 2. Set up the local D1 database (creates SQLite file in .wrangler/state/)
-npm run db:setup
-
-# 3. Start the local dev server on http://127.0.0.1:8787
-npm run dev
-```
-
-> Local dev uses a local SQLite file for D1 and in-memory state for KV/DO. No Cloudflare account needed for local development.
-
-#### Available Scripts
-
-| Command | Description |
-| :--- | :--- |
-| `npm run dev` | Start Wrangler dev server on port 8787 |
-| `npm run db:setup` | Apply schema + seed initial catalog to local D1 |
-| `npm run db:catalog` | Seed only the product catalog (non-destructive) |
-| `npm run deploy` | Provision resources and deploy to Cloudflare (requires `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` env vars) |
-| `npm run deploy:dry-run` | Generate `wrangler.toml` without deploying anything |
-| `npm run test` | Run the observability verification suite |
-
----
-
-## 🔐 Secret & Credential Reference
-
-### GitHub Actions Secrets (you set these once in GitHub)
-
-| Secret | Description |
-| :--- | :--- |
-| `CLOUDFLARE_API_TOKEN` | API token with Workers, D1, KV, Pages, and Observability edit permissions. |
-| `CLOUDFLARE_ACCOUNT_ID` | Your Cloudflare Account ID (32-char hex). |
-| `OBSERVABILITY_API_KEY` | An arbitrary secret string; reserved for future observability API authentication. |
-
-### Cloudflare Worker Secrets (set automatically by `scripts/setup.js` / CI)
-
-These are stored as encrypted Cloudflare Worker secrets and are **never exposed to browser code**:
-
-| Secret | Description |
-| :--- | :--- |
-| `OBSERVABILITY_API_KEY` | Passed from the GitHub Actions secret into the Worker. |
-| `CF_OBSERVABILITY_API_TOKEN` | Aliased from `CLOUDFLARE_API_TOKEN`; used server-side by the Worker to call the Cloudflare Observability API. |
-
-### Cloudflare Pages Environment Variables (set automatically by `scripts/setup.js`)
-
-| Variable | Description |
-| :--- | :--- |
-| `CLOUDCART_WORKER_HOST` | The Worker's public `workers.dev` hostname. Used as HTTP fallback in the Pages Function proxy when the Service Binding is unavailable. |
-
----
-
-## 🔧 How the API Proxy Works
-
-`functions/api/[[route]].js` intercepts every `/api/*` request from the browser:
-
-1. **Primary — Service Binding:** If `env.API_WORKER` is present (set by the `API_WORKER` Cloudflare Service Binding), the request is forwarded directly to the Worker — **zero external network hop, lowest latency**.
-2. **Fallback — HTTP:** If the binding is not yet active, the function reads `env.CLOUDCART_WORKER_HOST` (a Pages environment variable set by `scripts/setup.js`) and forwards the request over HTTPS. This handles edge cases during the first deployment before the binding propagates.
 
 ---
 
@@ -290,22 +222,4 @@ feedback  (id, customer_name, email, rating, comments, created_at)
 - `initial_catalog.sql` — uses `INSERT OR IGNORE`, existing records are never overwritten.
 
 ---
-
-## ⚠️ Troubleshooting
-
-| Symptom | Fix |
-| :--- | :--- |
-| CI fails: `401 Unauthorized` | Verify `CLOUDFLARE_API_TOKEN` is correct and not expired. |
-| CI fails: `403 Forbidden` on D1 or KV | Ensure the token has **Account** scope, not just Zone scope. See Step 1 for the full permission list. |
-| Storefront shows `503 — API_WORKER binding missing` | Re-run the deployment. The Service Binding needs at least one successful deploy to activate. |
-| Products not loading | Check that the D1 migration ran. For local dev: `npm run db:setup`. |
-| WebSocket real-time sync not working | Durable Objects require a deployed Worker. Local dev works via `npm run dev`. |
-| `wrangler.toml` still shows `00000000` placeholder IDs | `wrangler.toml` is auto-generated by CI. Run `npm run deploy` locally with `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` set, or let GitHub Actions populate it. |
-| Observability dashboard shows no data | Logs and traces are sampled. Wait a few minutes after the first real requests, then click **Refresh**. |
-
----
-
-## 📝 License
-
-MIT
 
