@@ -88,21 +88,36 @@ async function ensureKV() {
 }
 
 // ─── Ensure Pages Project with Service Binding ───────────────────────────────
-async function ensurePages() {
+async function ensurePages(workerSubdomain) {
   const existing = await cloudflare(`/pages/projects/${RESOURCE_NAMES.pages}`, {
     allowNotFound: true,
   });
+
+  // Build the worker's public URL for the HTTP fallback in functions/api/[[route]].js
+  const workerHost = workerSubdomain
+    ? `${RESOURCE_NAMES.worker}.${workerSubdomain}.workers.dev`
+    : null;
+
+  const envVars = workerHost
+    ? {
+        env_vars: {
+          CLOUDCART_WORKER_HOST: { type: "plain_text", value: workerHost },
+        },
+      }
+    : {};
 
   const serviceBindingConfig = {
     production: {
       service_bindings: {
         API_WORKER: { service: RESOURCE_NAMES.worker, environment: "production" }
-      }
+      },
+      ...envVars,
     },
     preview: {
       service_bindings: {
         API_WORKER: { service: RESOURCE_NAMES.worker, environment: "production" }
-      }
+      },
+      ...envVars,
     }
   };
 
@@ -116,6 +131,7 @@ async function ensurePages() {
         }
       });
       console.log(`🔗 Service binding 'API_WORKER -> ${RESOURCE_NAMES.worker}' configured for Pages.`);
+      if (workerHost) console.log(`🌐 Pages env var CLOUDCART_WORKER_HOST=${workerHost} set as HTTP fallback.`);
     } catch (err) {
       console.log(`ℹ️ Note on Pages Service Binding config: ${err.message}`);
     }
@@ -132,6 +148,7 @@ async function ensurePages() {
     },
   });
   console.log(`✅ Created Cloudflare Pages project: ${RESOURCE_NAMES.pages}`);
+  if (workerHost) console.log(`🌐 Pages env var CLOUDCART_WORKER_HOST=${workerHost} set as HTTP fallback.`);
   return created.result;
 }
 
@@ -309,9 +326,21 @@ await runWrangler([
 await putWranglerSecret("OBSERVABILITY_API_KEY", process.env.OBSERVABILITY_API_KEY);
 await putWranglerSecret("CF_OBSERVABILITY_API_TOKEN", process.env.CF_OBSERVABILITY_API_TOKEN);
 
+// Step 3: Fetch the deployed Worker's subdomain (e.g. "myaccount" from "cloudcart-worker.myaccount.workers.dev")
+// Used to set CLOUDCART_WORKER_HOST on Pages as the HTTP fallback, in case the Service Binding is not yet active.
+let workerSubdomain = null;
+try {
+  const workerMeta = await cloudflare(`/workers/scripts/${RESOURCE_NAMES.worker}`);
+  // Cloudflare returns the subdomain in the account details; fetch it separately.
+  const accountMeta = await cloudflare("");
+  workerSubdomain = accountMeta?.result?.name || null;
+} catch (_) {
+  // Non-fatal: subdomain detection is best-effort. The Service Binding will be the primary path anyway.
+}
+
 // Step 3: Ensure Cloudflare Pages project with Service Binding
 console.log("\n⚡ Provisioning Cloudflare Pages project with Service Binding...");
-await ensurePages();
+await ensurePages(workerSubdomain);
 
 // Step 4: Deploy Cloudflare Pages frontend (serves UI + Pages Functions)
 console.log("\n🌐 Deploying CloudCart Frontend to Cloudflare Pages (cloudcart.pages.dev)...");
@@ -324,4 +353,4 @@ await runWrangler([
 
 console.log("\n✨ CloudCart Multi-Tier Architecture deployed successfully!");
 console.log(`   Frontend (Pages):  https://${RESOURCE_NAMES.pages}.pages.dev`);
-console.log(`   Backend  (Worker): https://${RESOURCE_NAMES.worker}.shreesha.workers.dev\n`);
+console.log(`   Backend  (Worker): Check your Cloudflare Dashboard → Workers & Pages → ${RESOURCE_NAMES.worker} for the public URL.\n`);

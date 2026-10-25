@@ -22,7 +22,7 @@
     "kv",
     "e-commerce"
   ],
-  "author": "Cloudflare Intern",
+  "author": "",
   "license": "MIT",
   "devDependencies": {
     "wrangler": "^4.151.1"

@@ -3,18 +3,27 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+*.log
 
 # Wrangler local development state and logs (contains local SQLite D1 & KV state)
+# Matches both root-level and nested .wrangler/ directories (e.g., worker/.wrangler/)
 .wrangler/
+**/.wrangler/
 .cloudflare/
 
-# Environment variables
+# Environment variables — never commit real credentials
 .env
 .env.*
 !.env.example
+
+# Build / deploy artifacts
+dist/
+.output/
 
 # OS and Editor files
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
+*.swp
+*.swo
