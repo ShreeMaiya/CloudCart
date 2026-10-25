@@ -108,12 +108,18 @@ async function ensurePages(workerSubdomain) {
 
   const serviceBindingConfig = {
     production: {
+      services: {
+        API_WORKER: { service: RESOURCE_NAMES.worker, environment: "production" }
+      },
       service_bindings: {
         API_WORKER: { service: RESOURCE_NAMES.worker, environment: "production" }
       },
       ...envVars,
     },
     preview: {
+      services: {
+        API_WORKER: { service: RESOURCE_NAMES.worker, environment: "production" }
+      },
       service_bindings: {
         API_WORKER: { service: RESOURCE_NAMES.worker, environment: "production" }
       },
@@ -326,14 +332,15 @@ await runWrangler([
 // can call the Cloudflare API server-side without any extra secret name.
 await putWranglerSecret("CLOUDFLARE_API_TOKEN", API_TOKEN);
 
-// Step 3: Fetch the deployed Worker's subdomain (e.g. "myaccount" from "cloudcart-worker.myaccount.workers.dev")
+// Step 3: Fetch the deployed Worker's subdomain (e.g. "shreesha" from "cloudcart-worker.shreesha.workers.dev")
 // Used to set CLOUDCART_WORKER_HOST on Pages as the HTTP fallback, in case the Service Binding is not yet active.
 let workerSubdomain = null;
 try {
-  const workerMeta = await cloudflare(`/workers/scripts/${RESOURCE_NAMES.worker}`);
-  // Cloudflare returns the subdomain in the account details; fetch it separately.
-  const accountMeta = await cloudflare("");
-  workerSubdomain = accountMeta?.result?.name || null;
+  const subMeta = await cloudflare("/workers/subdomain");
+  const sub = subMeta?.result?.subdomain;
+  if (sub && /^[a-zA-Z0-9-]+$/.test(sub)) {
+    workerSubdomain = sub;
+  }
 } catch (_) {
   // Non-fatal: subdomain detection is best-effort. The Service Binding will be the primary path anyway.
 }
