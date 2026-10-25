@@ -156,13 +156,7 @@ function getTelemetryError(result) {
 
 function healthSnapshot(env, request) {
   const configured = Boolean(env?.CF_ACCOUNT_ID && env?.CLOUDFLARE_API_TOKEN);
-  const requestUrl = new URL(request.url);
-  let allowedUrl = null;
-  try { if (env?.ALLOWED_ORIGIN) allowedUrl = new URL(env.ALLOWED_ORIGIN); } catch { /* Invalid optional origin does not break health reporting. */ }
-  const pagesPathObserved = requestUrl.hostname.endsWith(".pages.dev") || Boolean(allowedUrl && requestUrl.origin === allowedUrl.origin);
   const services = [
-    { id: "pages", name: "Cloudflare Pages", tier: "Frontend", status: pagesPathObserved ? "HEALTHY" : "UNKNOWN", signal: pagesPathObserved ? "Current Pages-hosted request" : "No Pages-hosted request observed", detail: pagesPathObserved ? "The static dashboard loaded and its API request reached this Worker." : "A direct Worker request cannot verify Pages availability." },
-    { id: "pages_functions", name: "Pages Functions / Service Binding", tier: "Proxy", status: pagesPathObserved ? "HEALTHY" : "UNKNOWN", signal: pagesPathObserved ? "Current proxied API request" : "No Pages-hosted request observed", detail: pagesPathObserved ? "The observability API request passed through the Pages Function and service binding." : "A direct Worker request cannot verify the Pages proxy." },
     { id: "worker", name: "CloudCart Worker", tier: "API", status: "HEALTHY", signal: "Current request", detail: "The Worker is serving this health response." },
     { id: "d1", name: "Cloudflare D1", tier: "Database", status: "UNKNOWN", signal: "Not actively probed", detail: "Use Run health check to issue one SELECT 1 probe." },
     { id: "kv", name: "Cloudflare KV", tier: "Storage", status: "UNKNOWN", signal: "Not actively probed", detail: "Use Run health check to issue one KV read." },
