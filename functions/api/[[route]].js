@@ -11,11 +11,18 @@ export async function onRequest(context) {
   }
 
   // 2. HTTP fallback: forward to the Worker's public URL.
-  // Validate the host so that any invalid/unresolved host (or spaces from account name) safely falls back.
+  // CLOUDCART_WORKER_HOST is set dynamically per-account by scripts/setup.js.
   let backendWorkerHost = (env.CLOUDCART_WORKER_HOST || "").trim();
 
+  // If the host is not set or invalid, return a clean 503 response instead of hardcoding any personal domain.
   if (!backendWorkerHost || /[^a-zA-Z0-9.-]/.test(backendWorkerHost)) {
-    backendWorkerHost = "cloudcart-worker.shreesha.workers.dev";
+    return new Response(
+      JSON.stringify({
+        error: "Backend Worker is not connected.",
+        hint: "Ensure the API_WORKER service binding is configured in Pages, or deploy via GitHub Actions (scripts/setup.js) to set CLOUDCART_WORKER_HOST automatically.",
+      }),
+      { status: 503, headers: { "Content-Type": "application/json" } }
+    );
   }
 
   try {

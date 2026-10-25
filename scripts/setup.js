@@ -332,7 +332,7 @@ await runWrangler([
 // can call the Cloudflare API server-side without any extra secret name.
 await putWranglerSecret("CLOUDFLARE_API_TOKEN", API_TOKEN);
 
-// Step 3: Fetch the deployed Worker's subdomain (e.g. "shreesha" from "cloudcart-worker.shreesha.workers.dev")
+// Step 3: Fetch the deployed Worker's subdomain (e.g. "my-subdomain" from "cloudcart-worker.my-subdomain.workers.dev")
 // Used to set CLOUDCART_WORKER_HOST on Pages as the HTTP fallback, in case the Service Binding is not yet active.
 let workerSubdomain = null;
 try {
